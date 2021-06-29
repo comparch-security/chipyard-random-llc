@@ -20,7 +20,7 @@ class TinyRocketConfig extends Config(
   new freechips.rocketchip.subsystem.WithNoMemPort ++             // remove backing memory
   new freechips.rocketchip.subsystem.With1TinyCore ++             // single tiny rocket-core
   new chipyard.config.AbstractConfig)
-
+/*
 class HwachaRocketConfig extends Config(
   new chipyard.config.WithHwachaTest ++
   new hwacha.DefaultHwachaConfig ++                              // use Hwacha vector accelerator
@@ -206,3 +206,4 @@ class LBWIFRocketConfig extends Config(
   new freechips.rocketchip.subsystem.WithNoMemPort ++       // remove AXI4 backing memory
   new freechips.rocketchip.subsystem.WithNBigCores(1) ++
   new chipyard.config.AbstractConfig)
+*/

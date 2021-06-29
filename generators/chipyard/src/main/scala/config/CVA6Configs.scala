@@ -1,4 +1,4 @@
-package chipyard
+/*package chipyard
 
 import chisel3._
 
@@ -17,3 +17,4 @@ class dmiCVA6Config extends Config(
   new chipyard.config.WithDMIDTM ++                // have debug module expose a clocked DMI port
   new cva6.WithNCVA6Cores(1) ++                    // single CVA6 core
   new chipyard.config.AbstractConfig)
+*/

@@ -102,9 +102,9 @@ HELP_COMMANDS += \
 # include additional subproject make fragments
 # see HELP_COMPILATION_VARIABLES
 #########################################################################################
-include $(base_dir)/generators/cva6/cva6.mk
+#include $(base_dir)/generators/cva6/cva6.mk
 include $(base_dir)/generators/tracegen/tracegen.mk
-include $(base_dir)/generators/nvdla/nvdla.mk
+#include $(base_dir)/generators/nvdla/nvdla.mk
 include $(base_dir)/tools/dromajo/dromajo.mk
 
 #########################################################################################

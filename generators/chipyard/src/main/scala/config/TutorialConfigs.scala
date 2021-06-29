@@ -1,4 +1,4 @@
-package chipyard
+/*package chipyard
 
 import freechips.rocketchip.config.{Config}
 
@@ -68,3 +68,4 @@ class TutorialSha3BlackBoxConfig extends Config(
   new freechips.rocketchip.subsystem.WithNBigCores(1) ++
   new chipyard.config.AbstractConfig
 )
+*/

@@ -17,12 +17,12 @@ import freechips.rocketchip.groundtest.{GroundTestSubsystemModuleImp, GroundTest
 import sifive.blocks.devices.gpio._
 import sifive.blocks.devices.uart._
 import sifive.blocks.devices.spi._
-import tracegen.{TraceGenSystemModuleImp}
+//import tracegen.{TraceGenSystemModuleImp}
 
 import barstools.iocell.chisel._
 
 import testchipip._
-import icenet.{CanHavePeripheryIceNIC, SimNetwork, NicLoopback, NICKey, NICIOvonly}
+//import icenet.{CanHavePeripheryIceNIC, SimNetwork, NicLoopback, NICKey, NICIOvonly}
 
 import scala.reflect.{ClassTag}
 
@@ -331,7 +331,8 @@ class WithBlockDeviceIOPunchthrough extends OverrideIOBinder({
   }
 })
 
-class WithNICIOPunchthrough extends OverrideIOBinder({
+class WithNICIOPunchthrough extends Config((site, here, up) => { case chipyard.config.DummyConfig => 0 })
+/*class WithNICIOPunchthrough extends OverrideIOBinder({
   (system: CanHavePeripheryIceNIC) => {
     val ports: Seq[ClockedIO[NICIOvonly]] = system.icenicOpt.map({ n =>
       val p = IO(new ClockedIO(new NICIOvonly)).suggestName("nic")
@@ -340,15 +341,16 @@ class WithNICIOPunchthrough extends OverrideIOBinder({
     }).toSeq
     (ports, Nil)
   }
-})
+})*/
 
-class WithTraceGenSuccessPunchthrough extends OverrideIOBinder({
+class WithTraceGenSuccessPunchthrough extends Config((site, here, up) => { case chipyard.config.DummyConfig => 0 })
+/*class WithTraceGenSuccessPunchthrough extends OverrideIOBinder({
   (system: TraceGenSystemModuleImp) => {
     val success: Bool = IO(Output(Bool())).suggestName("success")
     success := system.success
     (Seq(success), Nil)
   }
-})
+})*/
 
 class WithTraceIOPunchthrough extends OverrideIOBinder({
   (system: CanHaveTraceIOModuleImp) => {

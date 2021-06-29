@@ -1,4 +1,4 @@
-package chipyard
+/*package chipyard
 
 import freechips.rocketchip.config.{Config}
 
@@ -43,3 +43,4 @@ class LargeBoomAndRocketWithControlCoreConfig extends Config(
   new boom.common.WithNLargeBooms(1) ++                    // Add 1 boom core
   new freechips.rocketchip.subsystem.WithNBigCores(1) ++   // add 1 rocket core
   new chipyard.config.AbstractConfig)
+*/

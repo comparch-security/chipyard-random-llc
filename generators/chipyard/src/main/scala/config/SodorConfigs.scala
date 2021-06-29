@@ -1,4 +1,4 @@
-package chipyard
+/*package chipyard
 
 import chisel3._
 
@@ -63,3 +63,4 @@ class SodorUCodeConfig extends Config(
   new freechips.rocketchip.subsystem.WithNoMemPort ++          // use no external memory
   new freechips.rocketchip.subsystem.WithNBanks(0) ++
   new chipyard.config.AbstractConfig)
+*/

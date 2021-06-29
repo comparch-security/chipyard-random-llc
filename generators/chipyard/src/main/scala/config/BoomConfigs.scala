@@ -21,7 +21,7 @@ class LargeBoomConfig extends Config(
 class MegaBoomConfig extends Config(
   new boom.common.WithNMegaBooms(1) ++                           // mega boom config
   new chipyard.config.AbstractConfig)
-
+/*
 class DualSmallBoomConfig extends Config(
   new boom.common.WithNSmallBooms(2) ++                          // 2 boom cores
   new chipyard.config.AbstractConfig)
@@ -42,4 +42,4 @@ class DromajoBoomConfig extends Config(
   new chipyard.harness.WithSimDromajoBridge ++                   // attach Dromajo
   new chipyard.config.WithTraceIO ++                             // enable the traceio
   new boom.common.WithNSmallBooms(1) ++
-  new chipyard.config.AbstractConfig)
+  new chipyard.config.AbstractConfig)*/

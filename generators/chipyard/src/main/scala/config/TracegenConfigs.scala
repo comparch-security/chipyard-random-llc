@@ -1,4 +1,4 @@
-package chipyard
+/*package chipyard
 
 import freechips.rocketchip.config.{Config}
 import freechips.rocketchip.rocket.{DCacheParams}
@@ -38,3 +38,4 @@ class NonBlockingTraceGenL2RingConfig extends Config(
   new testchipip.WithRingSystemBus ++
   new freechips.rocketchip.subsystem.WithInclusiveCache ++
   new AbstractTraceGenConfig)
+*/

@@ -17,13 +17,13 @@ import freechips.rocketchip.util.{AsyncResetReg, Symmetric}
 import freechips.rocketchip.prci._
 
 import testchipip._
-import tracegen.{TraceGenSystem}
+//import tracegen.{TraceGenSystem}
 
-import hwacha.{Hwacha}
-import gemmini.{Gemmini, GemminiConfigs}
+//import hwacha.{Hwacha}
+//import gemmini.{Gemmini, GemminiConfigs}
 
 import boom.common.{BoomTileAttachParams}
-import cva6.{CVA6TileAttachParams}
+//import cva6.{CVA6TileAttachParams}
 
 import sifive.blocks.devices.gpio._
 import sifive.blocks.devices.uart._
@@ -31,6 +31,7 @@ import sifive.blocks.devices.spi._
 
 import chipyard._
 
+case object DummyConfig extends Field[Int]
 // -----------------------
 // Common Config Fragments
 // -----------------------
@@ -68,7 +69,8 @@ class WithL2TLBs(entries: Int) extends Config((site, here, up) => {
 })
 
 class WithTracegenSystem extends Config((site, here, up) => {
-  case BuildSystem => (p: Parameters) => new TraceGenSystem()(p)
+  //case BuildSystem => (p: Parameters) => new TraceGenSystem()(p)
+  case DummyConfig => 0
 })
 
 /**
@@ -80,7 +82,8 @@ case object MultiRoCCKey extends Field[Map[Int, Seq[Parameters => LazyRoCC]]](Ma
  * Config fragment to enable different RoCCs based on the hartId
  */
 class WithMultiRoCC extends Config((site, here, up) => {
-  case BuildRoCC => site(MultiRoCCKey).getOrElse(site(TileKey).hartId, Nil)
+  //case BuildRoCC => site(MultiRoCCKey).getOrElse(site(TileKey).hartId, Nil)
+  case DummyConfig => 0
 })
 
 /**
@@ -95,38 +98,41 @@ class WithMultiRoCC extends Config((site, here, up) => {
  * @param harts harts to specify which will get a Hwacha
  */
 class WithMultiRoCCHwacha(harts: Int*) extends Config(
-  new chipyard.config.WithHwachaTest ++
+  //new chipyard.config.WithHwachaTest ++
   new Config((site, here, up) => {
-    case MultiRoCCKey => {
+    /*case MultiRoCCKey => {
       up(MultiRoCCKey, site) ++ harts.distinct.map{ i =>
         (i -> Seq((p: Parameters) => {
           val hwacha = LazyModule(new Hwacha()(p))
           hwacha
         }))
       }
-    }
+    }*/
+  case DummyConfig => 0
   })
 )
 
 class WithMultiRoCCGemmini(harts: Int*) extends Config((site, here, up) => {
-  case MultiRoCCKey => up(MultiRoCCKey, site) ++ harts.distinct.map { i =>
+  /*case MultiRoCCKey => up(MultiRoCCKey, site) ++ harts.distinct.map { i =>
     (i -> Seq((p: Parameters) => {
       implicit val q = p
       val gemmini = LazyModule(new Gemmini(OpcodeSet.custom3, GemminiConfigs.defaultConfig))
       gemmini
     }))
-  }
+  }*/
+  case DummyConfig => 0
 })
 
 class WithTraceIO extends Config((site, here, up) => {
-  case TilesLocated(InSubsystem) => up(TilesLocated(InSubsystem), site) map {
+  /*case TilesLocated(InSubsystem) => up(TilesLocated(InSubsystem), site) map {
     case tp: BoomTileAttachParams => tp.copy(tileParams = tp.tileParams.copy(
       trace = true))
     case tp: CVA6TileAttachParams => tp.copy(tileParams = tp.tileParams.copy(
       trace = true))
     case other => other
   }
-  case TracePortKey => Some(TracePortParams())
+  case TracePortKey => Some(TracePortParams())*/
+  case DummyConfig => 0
 })
 
 class WithNPerfCounters(n: Int = 29) extends Config((site, here, up) => {
@@ -157,15 +163,16 @@ class WithBroadcastManager extends Config((site, here, up) => {
 })
 
 class WithHwachaTest extends Config((site, here, up) => {
-  case TestSuitesKey => (tileParams: Seq[TileParams], suiteHelper: TestSuiteHelper, p: Parameters) => {
+  /*case TestSuitesKey => (tileParams: Seq[TileParams], suiteHelper: TestSuiteHelper, p: Parameters) => {
     up(TestSuitesKey).apply(tileParams, suiteHelper, p)
     import hwacha.HwachaTestSuites._
     suiteHelper.addSuites(rv64uv.map(_("p")))
     suiteHelper.addSuites(rv64uv.map(_("vp")))
     suiteHelper.addSuite(rv64sv("p"))
-    suiteHelper.addSuite(hwachaBmarks)
-    "SRC_EXTENSION = $(base_dir)/hwacha/$(src_path)/*.scala" + "\nDISASM_EXTENSION = --extension=hwacha"
-  }
+    suiteHelper.addSuite(hwachaBmarks)*/
+    //"SRC_EXTENSION = $(base_dir)/hwacha/$(src_path)/*.scala" + "\nDISASM_EXTENSION = --extension=hwacha"
+  //}
+  case DummyConfig => 0
 })
 
 // The default RocketChip BaseSubsystem drives its diplomatic clock graph

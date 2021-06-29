@@ -23,7 +23,7 @@ import chipyard.HasHarnessSignalReferences
 import chipyard.iobinders.GetSystemParameters
 
 import tracegen.{TraceGenSystemModuleImp}
-import icenet.{CanHavePeripheryIceNIC, SimNetwork, NicLoopback, NICKey, NICIOvonly}
+//import icenet.{CanHavePeripheryIceNIC, SimNetwork, NicLoopback, NICKey, NICIOvonly}
 
 import scala.reflect.{ClassTag}
 
@@ -106,7 +106,8 @@ class WithBlockDeviceModel extends OverrideHarnessBinder({
   }
 })
 
-class WithLoopbackNIC extends OverrideHarnessBinder({
+class WithLoopbackNIC extends Config((site, here, up) => { case chipyard.config.DummyConfig => 0 })
+/*class WithLoopbackNIC extends OverrideHarnessBinder({
   (system: CanHavePeripheryIceNIC, th: HasHarnessSignalReferences, ports: Seq[ClockedIO[NICIOvonly]]) => {
     implicit val p: Parameters = GetSystemParameters(system)
     ports.map { n =>
@@ -115,14 +116,15 @@ class WithLoopbackNIC extends OverrideHarnessBinder({
       }
     }
   }
-})
+})*/
 
-class WithSimNetwork extends OverrideHarnessBinder({
+class WithSimNetwork extends Config((site, here, up) => { case chipyard.config.DummyConfig => 0 })
+/*class WithSimNetwork extends OverrideHarnessBinder({
   (system: CanHavePeripheryIceNIC, th: BaseModule with HasHarnessSignalReferences, ports: Seq[ClockedIO[NICIOvonly]]) => {
     implicit val p: Parameters = GetSystemParameters(system)
     ports.map { n => SimNetwork.connect(Some(n.bits), n.clock, th.harnessReset.asBool) }
   }
-})
+})*/
 
 class WithSimAXIMem extends OverrideHarnessBinder({
   (system: CanHaveMasterAXI4MemPort, th: HasHarnessSignalReferences, ports: Seq[ClockedAndResetIO[AXI4Bundle]]) => {
