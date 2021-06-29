@@ -1,0 +1,36 @@
+# Temporary files and build objects
+*~
+.deps/
+.dirstamp
+.libs/
+*.lo
+stamp-h1
+*.o
+*.la
+##Makefile
+config.h
+config.log
+config.status
+libglip.pc
+libtool
+
+# build output
+src/tools/glip_io_stress_test
+src/tools/glip_loopback_measure
+
+# Autotools files
+build-aux/
+Makefile.in
+autom4te.cache/
+aclocal.m4
+config.h.in
+configure
+
+# Eclipse files
+.autotools
+.project
+.cproject
+/.settings
+
+# Build folder
+build/

@@ -1,0 +1,17 @@
+out/
+generated/
+/lib/firrtl.jar
+.classpath
+.idea
+.idea_modules/
+.project
+target/
+*.iml
+*.swp
+*.fir
+*.v
+*.json
+test_run_dir
+*~
+\#*\#
+.\#*

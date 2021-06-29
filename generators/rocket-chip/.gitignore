@@ -1,0 +1,36 @@
+out/
+target/
+project/target
+docs/generated
+docs-target/
+*.fir
+*.v
+*.anno.json
+*.swp
+*~
+.addons-dont-touch
+/lib/
+/test_lib/
+/testbuild/
+rocketchip.jar
+
+
+!chisel3/docs-target/
+# !*.fir
+!firrtl/regress/*.fir
+!firrtl/src/test/resources/blackboxes/*.fir
+!firrtl/src/test/resources/features/*.fir
+!firrtl/src/test/resources/intergration/*.fir
+!firrtl/src/test/resources/passes/ExpandWhens/*.fir
+!firrtl/src/test/resources/passes/Legalize/*.fir
+!firrtl/src/test/resources/passes/regress/*.fir
+!firrtl/test/integration/*.fir
+!firrtl/utils/bin/*.fir
+# !*.v
+!chisel3/src/test/resources/chisel3/*.v
+!firrtl/src/test/resources/blackboxes/*.v
+!hardfloat/vsrc/*.v
+!src/main/resources/vsrc/*.v
+
+
+

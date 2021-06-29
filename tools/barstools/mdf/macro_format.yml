@@ -1,0 +1,149 @@
+# This is documentation for the PLSI macro description format (MDF).
+# Version 0.1
+# Subject to change.
+# TODO: write this as a JSON schema?
+# Documented by Edward Wang <edward.c.wang@compdigitec.com>
+
+# The file in the macro interchange format is an array consisting of one or more
+# of the following dictionaries, each of which defines a macro
+
+-
+    # All macros must have the following two fields to be considered a valid
+    # macro.
+
+    # The type of macro.
+    # Currently valid types of macros are:
+    # - sram
+    # - metal filler cell
+    # - filler cell
+    # Each of the three types will be documented below.
+    # Any other types are reserved for future use and should be ignored in
+    # parsers.
+    type: "invalid_demo_only"
+
+    # Name of the macro. Must be unique among all macros in the list (and
+    # hopefully in the project).
+    name: "TECH_MACRO_DEMO"
+
+# Filler and metal filler cell description.
+-
+    type: "filler cell" # This can be "filler cell" (no metal) or "metal filler cell" (has metal, probably a decap cell)
+    name: "TECH_FILLER64" # example name
+
+    # Vt (voltage threshold of the cell).
+    # Examples of valid options include "lvt" for low Vt, "rvt" for regular Vt,
+    # and "hvt" for high Vt.
+    # Note: this option is not strictly validated yet
+    vt: hvt
+
+# Memory/SRAM cell description.
+-
+    type: sram
+    name: "TECH_DEMO_SRAM"
+
+    # Width of the memory, in bits.
+    # Should be greater than 0.
+    width: 64
+
+    # Depth of the memory (number of entries).
+    # Should be greater than 0.
+    depth: 1024
+
+    # Type of memory (number of ports and read/write).
+    # Currently supports read-write ports only.
+    # Note: this is currently de facto optional.
+    # TODO: define how to handle read-only and write-only ports.
+    # TODO: decide if this is redundant relative to the ports array below.
+    # For read-write ports:
+    # - "<n>rw" specifies a memory with <n> read-write ports.
+    family: "1rw"
+
+    # An array of port specifications.
+    # There must be at least one port in an SRAM (doesn't make sense to have
+    # port-less memories).
+    # Note: at the moment, "port polarity" is de facto optional (inferred as
+    # "active high" / "positive edge"). This should probably change.
+    # TODO: fix this in PLSI
+    ports:
+        -
+            # Name of the address port.
+            address port name: "A"
+
+            # Address port polarity.
+            # Valid values include "active high" and "active low".
+            address port polarity: "active high"
+
+            # Name of the clock port.
+            clock port name: "CLK"
+
+            # Polarity of the clock port.
+            # Valid values include "positive edge" and "negative edge".
+            clock port polarity: "positive edge"
+
+            # Name of the write enable pin.
+            write enable port name: "WEN"
+
+            # Polarity of the write enable pin.
+            # Valid values include "active high" and "active low".
+            write enable port polarity: "active high"
+
+            # Name of the read enable pin.
+            # This pin is optional.
+            read enable port name: "REN"
+
+            # Polarity of the read enable pin.
+            # Valid values include "active high" and "active low".
+            read enable port polarity: "active high"
+
+            # Name of the chip enable pin.
+            # This pin is optional.
+            chip enable port name: "CEN"
+
+            # Polarity of the chip enable pin.
+            # Valid values include "active high" and "active low".
+            chip enable port polarity: "active high"
+
+            # Name of the output port.
+            output port name: "OUT"
+
+            # Polarity of the output port.
+            # Valid values include "active high" and "active low".
+            output port polarity: "active high"
+
+            # Name of the input port.
+            input port name: "IN"
+
+            # Polarity of the input port.
+            # Valid values include "active high" and "active low".
+            input port polarity: "active high"
+
+            # Mask granularity.
+            # The mask fields are optional as a group.
+            # e.g. 1 means bit-masked, 8 means byte-masked.
+            mask granularity: 1
+
+            # Mask port name.
+            mask port name: "MASK"
+
+            # Mask port polarity.
+            # Valid values include "active high" and "active low".
+            mask port polarity: "active high"
+
+    # List of extra ports on the memory cell.
+    # Currently, only "constant" is supported as a type.
+    # This array is optional.
+    extra ports:
+        -
+            # Name of the extra port.
+            name: "TIE_HIGH"
+
+            # Width of the extra port.
+            width: 1
+
+            # Type/action to do with this extra port.
+            # Only "constant" is currently supported.
+            type: "constant"
+
+            # Value to tie the constant.
+            # Can be 0 or 1.
+            value: 1

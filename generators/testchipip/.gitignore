@@ -1,0 +1,7 @@
+target
+/lib
+project/*
+*.swp
+
+
+!project/build.properties

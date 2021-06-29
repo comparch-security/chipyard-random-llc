@@ -18,6 +18,9 @@ dist/
 
 # Package files
 *.jar
+!generators/rocket-chip/sbt-launch.jar
+!generators/rocket-chip/torture/sbt-launch.jar
+!generators/rocket-chip/hardfloat/sbt-launch.jar
 
 # Maven
 target/

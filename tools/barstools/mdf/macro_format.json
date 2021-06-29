@@ -1,0 +1,84 @@
+[
+  {
+    "type": "invalid_demo_only",
+    "name": "TECH_MACRO_DEMO"
+  },
+  {
+    "type": "filler cell",
+    "vt": "hvt",
+    "name": "TECH_FILLER64"
+  },
+  {
+    "type": "sram",
+    "depth": 1024,
+    "family": "1rw",
+    "ports": [
+      {
+        "chip enable port name": "CREN",
+        "chip enable port polarity": "active high",
+        "clock port name": "CLK",
+        "clock port polarity": "positive edge",
+        "address port polarity": "active high",
+        "read enable port name": "REN",
+        "address port name": "A",
+        "output port polarity": "active high",
+        "input port name": "IN",
+        "output port name": "OUT",
+        "write enable port polarity": "active high",
+        "write enable port name": "WEN",
+        "input port polarity": "active high",
+        "read enable port polarity": "active high"
+      }
+    ],
+    "width": 64,
+    "name": "TECH_DEMO_SRAM",
+    "extra ports": [
+      {
+        "type": "constant",
+        "value": 1,
+        "width": 1,
+        "name": "TIE_HIGH"
+      }
+    ]
+  },
+  {
+    "type": "sramcompiler",
+    "name": "ST1nm",
+    "groups": [
+      {
+        "name": [ "TECH_DEMO_SRAM_", "VT", "_", "depth", "x", "width", "_", "family" ],
+        "family": "1rw",
+        "vt": [ "svt", "lvt", "ulvt" ],
+        "mux": 2,
+        "depth": [ 16, 512, 8 ],
+        "width": [ 8, 288, 2 ],
+        "ports": [
+          {
+            "chip enable port name": "CREN",
+            "chip enable port polarity": "active high",
+            "clock port name": "CLK",
+            "clock port polarity": "positive edge",
+            "address port polarity": "active high",
+            "read enable port name": "REN",
+            "address port name": "A",
+            "output port polarity": "active high",
+            "input port name": "IN",
+            "output port name": "OUT",
+            "write enable port polarity": "active high",
+            "write enable port name": "WEN",
+            "input port polarity": "active high",
+            "read enable port polarity": "active high"
+          }
+        ],
+        "extra ports": [
+          {
+            "type": "constant",
+            "value": 1,
+            "width": 1,
+            "name": "TIE_HIGH"
+          }
+        ]
+      }
+    ]
+  }
+]

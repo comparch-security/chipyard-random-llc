@@ -1,0 +1,4 @@
+test_run_dir
+*.pyc
+scalalib/project/
+scalalib/target/
