@@ -21,8 +21,10 @@ import Chisel._
 import freechips.rocketchip.diplomacy.AddressSet
 import freechips.rocketchip.tilelink._
 import freechips.rocketchip.util._
+import freechips.rocketchip.pfc._
 
 class Scheduler(params: InclusiveCacheParameters) extends Module
+    with HasSchedulerPFC
 {
   val io = new Bundle {
     val in = TLBundle(params.inner.bundle).flip
@@ -33,6 +35,15 @@ class Scheduler(params: InclusiveCacheParameters) extends Module
     // Control port
     val req = Decoupled(new SinkXRequest(params)).flip
     val resp = Decoupled(new SourceXRequest(params))
+    //pfc
+    val pfcupdate = new Bundle{
+      val g0      = Flipped(new P0L2PFCReg())
+      val g1      = Flipped(new P1L2PFCReg())
+      val itlink  = Flipped(new TileLinkPFCReg())
+      val otlink  = Flipped(new TileLinkPFCReg())
+      val setmiss = Flipped(new SetEventPFCRam(params.cache.sets))
+      val setwb   = Flipped(new SetEventPFCRam(params.cache.sets))
+    }
   }
 
   val sourceA = Module(new SourceA(params))
@@ -331,6 +342,8 @@ class Scheduler(params: InclusiveCacheParameters) extends Module
   sourceD.io.grant_req := sinkD  .io.grant_req
   sourceC.io.evict_safe := sourceD.io.evict_safe
   sinkD  .io.grant_safe := sourceD.io.grant_safe
+
+  connectPFC(params)
 
   private def afmt(x: AddressSet) = s"""{"base":${x.base},"mask":${x.mask}}"""
   private def addresses = params.inner.manager.managers.flatMap(_.address).map(afmt _).mkString(",")

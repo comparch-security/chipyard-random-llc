@@ -60,6 +60,7 @@ class WithInclusiveCache(
     implicit val p = context.p
     val sbus = context.tlBusWrapperLocationMap(SBUS)
     val cbus = context.tlBusWrapperLocationMap.lift(CBUS).getOrElse(sbus)
+    val pfbus = context.asInstanceOf[freechips.rocketchip.pfc.HasPFCnetwork].pfbus
     val InclusiveCacheParams(
       ways,
       sets,
@@ -127,6 +128,8 @@ class WithInclusiveCache(
     l2.ctlnode.foreach {
       _ := cbus.coupleTo("l2_ctrl") { TLBuffer(1) := TLFragmenter(cbus) := _ }
     }
+
+    pfbus.manodes(p(freechips.rocketchip.subsystem.RocketTilesKey).length) := l2.pfmanode
 
     ElaborationArtefacts.add("l2.json", l2.module.json)
     (filter.node, lastLevelNode, None)

@@ -168,14 +168,14 @@ class PFCNetworkl(val clientIds: Seq[Int], val managerIds: Seq[(Int, Int)])(impl
     ((0 until nClients).map(nodeandio(_)._1),  (0 until nClients).map(nodeandio(_)._2))
   }
 
-    val (manodes, maios) = {
-    val nodeandio = (0 until nClients).map(i => {
+  val (manodes, maios) = {
+    val nodeandio = (0 until nManagers).map(i => {
       //val node = BundleBridgeSource(() => Flipped((new PFCManagerIO(nClients).cloneType)))
       val node = new BundleBridgeSink(Some(() =>  Flipped((new PFCManagerIO(nClients).cloneType))))
       val io   = InModuleBody { node.bundle }
       (node, io)
     })
-    ((0 until nClients).map(nodeandio(_)._1),  (0 until nClients).map(nodeandio(_)._2))
+    ((0 until nManagers).map(nodeandio(_)._1),  (0 until nManagers).map(nodeandio(_)._2))
   }
 
  lazy val module = new LazyModuleImp(this) {

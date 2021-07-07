@@ -15,8 +15,8 @@ trait PFCRamBundle extends PFCBundle {
   val raml: Int 
   val ramw: Int
   lazy val couws = Seq(ramw)
-  val valid     = Input(Bool())
-  val addr      = Input(UInt(log2Up(raml).W))
+  lazy val valid = Input(Bool())
+  lazy val addr  = Input(UInt(log2Up(raml).W))
 }
 
 trait PFCRegBundle extends PFCBundle {
@@ -225,5 +225,67 @@ class P1L2PFCReg extends PFCRegBundle {
   val couws  = (0 to 36).map(i => 60) //default all counters 60.W
 
   val event0              = Input(Bool())   //event0
+}
+
+class TileLinkPFCReg extends PFCRegBundle {
+  val name = "TileLinkEvents"
+  val dummy  = false
+  val page   = 1
+  val couws  = (0 to 48).map(i => 60) //default all counters 60.W
+
+  //a: Acquire channel
+  val a_Done              = Input(Bool())     //event0
+  val a_PutFullData       = Input(Bool())     //event1
+  val a_PutPartialData    = Input(Bool())     //event2
+  val a_ArithmeticData    = Input(Bool())     //event3
+  val a_LogicalData       = Input(Bool())     //event4
+  val a_Get               = Input(Bool())     //event5
+  val a_Hint              = Input(Bool())     //event6
+  val a_AcquireBlock      = Input(Bool())     //event7
+  val a_AcquirePerm       = Input(Bool())     //event8
+  val a_Blocked           = Input(Bool())     //event9
+  val a_Err0              = Input(UInt(64.W)) //event10
+  val a_Err1              = Input(UInt(1.W))  //event11
+  //b: Probe channel
+  val b_Done              = Input(Bool())     //event12
+  val b_PutFullData       = Input(Bool())     //event13
+  val b_PutPartialData    = Input(Bool())     //event14
+  val b_ArithmeticData    = Input(Bool())     //event15
+  val b_LogicalData       = Input(Bool())     //event16
+  val b_Get               = Input(Bool())     //event17
+  val b_Hint              = Input(Bool())     //event18
+  val b_Probe             = Input(Bool())     //event19
+  val b_Blocked           = Input(Bool())     //event20
+  val b_Err0              = Input(UInt(64.W)) //event21
+  val b_Err1              = Input(UInt(1.W))  //event22
+  //c: Release channel
+  val c_Done              = Input(Bool())     //event23
+  val c_AccessAck         = Input(Bool())     //event24
+  val c_AccessAckData     = Input(Bool())     //event25
+  val c_HintAck           = Input(Bool())     //event26
+  val c_ProbeAck          = Input(Bool())     //event27
+  val c_ProbeAckData      = Input(Bool())     //event28
+  val c_Release           = Input(Bool())     //event29
+  val c_ReleaseData       = Input(Bool())     //event30
+  val c_Blocked           = Input(Bool())     //event31
+  val c_Err0              = Input(UInt(64.W)) //event32
+  val c_Err1              = Input(UInt(1.W))  //event33
+  //d: Grant channel
+  val d_Done              = Input(Bool())     //event34
+  val d_AccessAck         = Input(Bool())     //event35
+  val d_AccessAckData     = Input(Bool())     //event36
+  val d_HintAck           = Input(Bool())     //event37
+  val d_Grant             = Input(Bool())     //event38
+  val d_GrantData         = Input(Bool())     //event39
+  val d_ReleaseAck        = Input(Bool())     //event40
+  val d_Blocked           = Input(Bool())     //event41
+  val d_Err0              = Input(UInt(64.W)) //event42
+  val d_Err1              = Input(UInt(1.W)) //event43
+  //e: Finish channel
+  val e_Done              = Input(Bool())     //event44
+  val e_GrantAck          = Input(Bool())     //event45
+  val e_Blocked           = Input(Bool())     //event46
+  val e_Err0              = Input(UInt(10.W)) //event47
+  val e_Err1              = Input(UInt(1.W))  //event48
 }
 

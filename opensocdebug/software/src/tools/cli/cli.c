@@ -121,9 +121,24 @@ static int interpret(struct osd_context *ctx, char *line) {
                 verify = 1;
             }
 
-            printf("Verify: %d\n", verify);
+            int run = 0, halt=0;
+            if(verify) option = strtok(NULL, " ");
+            if (CHECK_MATCH(option, "-run")) {
+                run = 1;
+            }
+            else if (CHECK_MATCH(option, "-reset")) {
+                halt = 1;
+            }
+            else if (CHECK_MATCH(option, "-rrun")) {
+                run  = 1;
+                halt = 1;
+            }
 
+            if(halt) osd_reset_system(ctx, 1);
+            printf("Verify: %d\n", verify);
             osd_memory_loadelf(ctx, mem, file, verify);
+            if(run)  osd_start_cores(ctx);
+
         }
     } else if (CHECK_MATCH(cmd, "stm")) {
         char *subcmd = strtok(NULL, " ");
@@ -351,6 +366,8 @@ int main(int argc, char* argv[]) {
         }
     }
     osd_reset_system(ctx, 1);  //auto reset -halt
+    char enterminal[15] = "terminal 2";
+    interpret(ctx, enterminal); //auto start terminal
     while (1) {
         if (line) {
             free(line);

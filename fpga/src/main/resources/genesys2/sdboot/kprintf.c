@@ -60,6 +60,14 @@ void kprintf(const char *fmt, ...)
 				}
 				break;
 			}
+			case 'd': {
+				long tenpow=1;
+				long d = is_long ? va_arg(vl, long) : va_arg(vl, int);
+				if (d < 0)   { d = -d; kputc('-'); }
+                for (long dd = d; dd /= 10; tenpow *= 10) { }
+				for (; tenpow ; tenpow /= 10) { kputc('0' + ((d/tenpow) % 10)); }
+				break;
+			}
 			case 's':
 				_kputs(va_arg(vl, const char *));
 				break;

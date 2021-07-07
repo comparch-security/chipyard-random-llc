@@ -10,7 +10,8 @@ class PFCConfigSig extends Bundle {
   val pfcmid    = UInt(log2Up(PFCManagerIds.maxIds).W)
   val pfcram    = Bool()        //bit 19
   val pfcpage   = UInt(7.W)     //bit 18 - 12
-  val reserve   = UInt(8.W)     //bit 11 - 4
+  val reserve   = UInt(7.W)     //bit 11 - 5
+  val timeout   = Bool()        //bit 4
   val readerror = Bool()        //bit 3
   val empty     = Bool()        //bit 2
   val interrupt = Bool()        //bit 1
@@ -56,6 +57,7 @@ class PFCClient(val clientID: Int) extends Module {
   val wpfcc    = new PFCConfigSig().fromBits(io.access.wdata)
   wpfcc.interrupt  := csr_pfcc.interrupt
   wpfcc.readerror  := csr_pfcc.readerror
+  wpfcc.timeout    := csr_pfcc.timeout
   when(wen) {
     when(io.access.addr === pfcc_addr) { csr_pfcc  := wpfcc }
     when(io.access.addr === pfcm_addr) {
@@ -63,6 +65,7 @@ class PFCClient(val clientID: Int) extends Module {
       csr_pfcc.trigger     := false.B
       csr_pfcc.interrupt   := false.B
       csr_pfcc.readerror   := false.B
+      csr_pfcc.timeout     := false.B
     }
   }
   //csr_pfc read
@@ -98,8 +101,10 @@ class PFCClient(val clientID: Int) extends Module {
   when(!stop) {
     when(io.access.interrupt)    { csr_pfcc.interrupt := true.B }
     when(state === s_TIMEOUT)    { csr_pfcc.readerror := true.B }
+    when(timecount === 0.U)                                  { csr_pfcc.timeout   := true.B  }
     when(!csr_pfcr.io.deq.valid && csr_pfcr.io.deq.ready)    { csr_pfcc.readerror := true.B  }
     when(csr_pfcr.io.enq.fire() && respque.io.deq.bits.last) { csr_pfcc.trigger   := false.B }
+
 
     when(io.client.req.fire()) {
       csr_pfcm := 0.U

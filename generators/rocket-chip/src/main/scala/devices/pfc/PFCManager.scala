@@ -57,8 +57,10 @@ class PFCRegPage (nClients: Int, rebt: PFCRegBundle ) extends PFCTruePage(nClien
   
   (0 until nCounters).map(i => { 
     counters(i).suggestName(events(i)._1)
-    //chisel3.util.experimental.forceName(bitmap, "bitmapppp") //no effect ??? but chisel3.util.experimental.forceName(busy, "busyyyyyyyyy") in OSDMAM can work 
-    counters(i) := counters(i) + RegNext(ioupdate(i).asUInt()) 
+    //chisel3.util.experimental.forceName(bitmap, "bitmapppp") //no effect ??? but chisel3.util.experimental.forceName(busy, "busyyyyyyyyy") in OSDMAM can work
+    val aserrMon = (ioupdate(i).asUInt().getWidth == 64) //as error monitor
+    if(aserrMon) { counters(i) := counters(i) | RegNext(ioupdate(i).asUInt()) }
+    else         { counters(i) := counters(i) + RegNext(ioupdate(i).asUInt()) }
   })
   
   //io.manager.req             ---> reqreg
@@ -96,6 +98,7 @@ class PFCRamPage (nClients: Int, rabt: PFCRamBundle) extends PFCTruePage(nClient
   val length = rabt.raml
   val ioupdate = IO(rabt.cloneType)
   val s1_control = Wire(new Bundle {
+    val v     = Bool()  //valid
     val resv  = Bool()  //resp valid
     val updv  = Bool()  //update valid
     val addr  = UInt(log2Up(length).W)  //update addr
@@ -105,15 +108,15 @@ class PFCRamPage (nClients: Int, rabt: PFCRamBundle) extends PFCTruePage(nClient
   val req_addr   = RegInit((length+1).U) //+1  ensure req_addr can > end_addr
   val end_addr   = Reg(UInt(log2Up(length).W))
   val bitmapUI   = Reg(UInt(log2Up(length).min(64).W)) 
-  val updque     = Module(new Queue(UInt(log2Up(length).W),1))
+  val updque     = Module(new Queue(UInt(log2Up(length).W), 2, pipe = true))
   val (counters, _)   = freechips.rocketchip.util.DescribedSRAM(name = "record", desc = "PFC RAM", size = length, data = UInt(width.W))
   val readArb    = Module(new Arbiter(UInt(length.W), 2))
   val rst_cnt    = RegInit(0.U(log2Up(length+1).W))
   val rst        = WireInit(rst_cnt < length.U)
   
   //io.update       ---> updque.io.enq
-  updque.io.enq.valid := ioupdate.valid
-  updque.io.enq.bits  := ioupdate.addr
+  updque.io.enq.valid := RegNext(ioupdate.valid)
+  updque.io.enq.bits  := RegNext(ioupdate.addr)
 
   //io.manager.req  ---> reqreg
   when(iomanager.req.fire()) {
@@ -124,7 +127,7 @@ class PFCRamPage (nClients: Int, rabt: PFCRamBundle) extends PFCTruePage(nClient
     }
     else {
       req_addr  := Cat(iomanager.req.bits.bitmap(log2Up(length/64), 0), 0.U(6.W))
-      val addr_add63 = Wire(Cat(iomanager.req.bits.bitmap(log2Up(length/64), 0), 63.U(6.W)))
+      val addr_add63 = WireInit(Cat(iomanager.req.bits.bitmap(log2Up(length/64), 0), 63.U(6.W)))
       end_addr := Mux(addr_add63 > (length-1).U, (length-1).U, addr_add63)
     }
   }
@@ -132,20 +135,21 @@ class PFCRamPage (nClients: Int, rabt: PFCRamBundle) extends PFCTruePage(nClient
     when(req_addr > end_addr) { busy := false.B }
   }
 
-
   // readArb
-  readArb.io.in(0).valid := (req_addr <= end_addr) && updque.io.enq.ready && !respque.io.enq.valid && respque.io.enq.ready
-  readArb.io.in(0).bits  := req_addr
-  readArb.io.in(1).valid := updque.io.deq.valid
-  readArb.io.in(1).bits  := updque.io.deq.bits
-  updque.io.deq.ready    := readArb.io.in(1).ready
-  readArb.io.out.ready   := !s2_control.updv
+  readArb.io.in(0).valid := updque.io.deq.valid
+  readArb.io.in(0).bits  := updque.io.deq.bits
+  readArb.io.in(1).valid := (req_addr <= end_addr) && !respque.io.enq.valid && respque.io.enq.ready
+  readArb.io.in(1).bits  := req_addr
+  updque.io.deq.ready    := readArb.io.in(0).ready
+  readArb.io.out.ready   := RegNext(!rst) //&& !s2_control.updv
 
   // stage1 control
-  s1_control.resv := RegNext(readArb.io.in(0).fire())
-  s1_control.updv := RegNext(readArb.io.in(1).fire())
-  s1_control.addr := RegNext(readArb.io.in(1).bits)  //updque.io.deq.bits
-  s1_control.data := counters.read(readArb.io.out.bits, readArb.io.out.fire())
+  val canbypass = s2_control.v && s2_control.addr === readArb.io.out.bits
+  s1_control.v    := s1_control.resv || s1_control.updv
+  s1_control.resv := RegNext(readArb.io.in(1).fire())
+  s1_control.updv := RegNext(readArb.io.in(0).fire())
+  s1_control.addr := RegNext(readArb.io.in(0).bits)  //updque.io.deq.bits
+  s1_control.data := Mux(canbypass, s2_control.data, counters.read(readArb.io.out.bits, readArb.io.out.fire() && !canbypass))
   // stage1 respque
   when(respque.io.enq.fire()) {
     req_addr := req_addr+1.U 
@@ -159,11 +163,14 @@ class PFCRamPage (nClients: Int, rabt: PFCRamBundle) extends PFCTruePage(nClient
   //respque.deq                ---> iomanager.resp (PFCOnePage)
 
   //stage2 updated
+  val delayupd = s1_control.updv && (s1_control.addr === s2_control.addr)
   rst_cnt         := Mux(rst, rst_cnt + 1.U, rst_cnt)
+  s2_control.v    := Mux(rst, true.B,  s1_control.v)
+  s2_control.resv := false.B
   s2_control.updv := Mux(rst, true.B,  s1_control.updv)
   s2_control.addr := Mux(rst, rst_cnt, s1_control.addr)
-  s2_control.data := Mux(rst, 0.U,     s1_control.data + 1.U)
-  when(s2_control.updv) { counters.write(s2_control.addr, s2_control.data) }
+  s2_control.data := Mux(rst, 0.U,     s1_control.data + Mux(s1_control.updv, 1.U, 0.U))
+  when(s2_control.updv && !delayupd) { counters.write(s2_control.addr, s2_control.data) }
 }
 
 class PFCBook[REBT <: PFCRegBundle, RABT <: PFCRamBundle](nClients: Int, rebt: Option[Seq[REBT]] = None, rabt: Option[Seq[RABT]] = None) extends Module {
