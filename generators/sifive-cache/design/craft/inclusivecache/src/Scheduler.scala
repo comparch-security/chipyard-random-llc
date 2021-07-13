@@ -42,7 +42,7 @@ class Scheduler(params: InclusiveCacheParameters) extends Module
       val itlink  = Flipped(new TileLinkPFCReg())
       val otlink  = Flipped(new TileLinkPFCReg())
       val setmiss = Flipped(new SetEventPFCRam(params.cache.sets))
-      val setwb   = Flipped(new SetEventPFCRam(params.cache.sets))
+      val setev   = Flipped(new SetEventPFCRam(params.cache.sets))
     }
   }
 

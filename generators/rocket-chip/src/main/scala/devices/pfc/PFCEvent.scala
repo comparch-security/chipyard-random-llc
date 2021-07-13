@@ -108,6 +108,11 @@ class P0RocketCorePFCReg extends PFCRegBundle {
   val page   = 0
   val name = "page0_CoreEvents"
   val couws  = (0 to 36).map(i => 60).updated(36, 50) //default all counters 60.W
+  /*val word = Seq(0, 1, 31, 32, 33)
+  (0 to 11).map(i  => {
+    if(word.contains(i))       { couws.updated(i, 64) }
+    else                       { couws.updated(i, 32) }
+  })*/
 
   val cycle                  = Input(Bool())   //event0
   val instruction            = Input(Bool())   //event1
@@ -203,7 +208,7 @@ class P5MSHRPFCReg extends PFCRegBundle {
 // Ram page
 class SetEventPFCRam(val nsets : Int = 64, val name : String = "CacheSetEvent") extends PFCRamBundle {
   val page = 0
-  val dummy  = false
+  val dummy  = true
   val raml   = nsets
   val ramw   = 64
 }
@@ -232,6 +237,16 @@ class TileLinkPFCReg extends PFCRegBundle {
   val dummy  = false
   val page   = 1
   val couws  = (0 to 48).map(i => 60) //default all counters 60.W
+  val word = Seq(0, 7, 10, 12, 19, 21, 23, 30, 32, 34, 36, 42, 44, 45, 47)
+  val half = Seq(1, 2, 5)
+  val bit = Seq(11, 22, 33, 43, 48)
+  (0 to 11).map(i  => {
+    if(word.contains(i))       { couws.updated(i, 64) }
+    else if(half.contains(i))  { couws.updated(i, 32) }
+    else if(bit.contains(i))   { couws.updated(i, 1)  }
+    else                       { couws.updated(i, 8)  }
+  })
+
 
   //a: Acquire channel
   val a_Done              = Input(Bool())     //event0
@@ -280,7 +295,7 @@ class TileLinkPFCReg extends PFCRegBundle {
   val d_ReleaseAck        = Input(Bool())     //event40
   val d_Blocked           = Input(Bool())     //event41
   val d_Err0              = Input(UInt(64.W)) //event42
-  val d_Err1              = Input(UInt(1.W)) //event43
+  val d_Err1              = Input(UInt(1.W))  //event43
   //e: Finish channel
   val e_Done              = Input(Bool())     //event44
   val e_GrantAck          = Input(Bool())     //event45

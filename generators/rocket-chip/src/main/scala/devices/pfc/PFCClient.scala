@@ -5,6 +5,7 @@ import chisel3.util._
 import Chisel.fromBitsable
 import freechips.rocketchip.rocket.CSR
 import freechips.rocketchip.rocket.CSRs
+import freechips.rocketchip.osd.OSDMAMReq
 
 class PFCConfigSig extends Bundle {
   val pfcmid    = UInt(log2Up(PFCManagerIds.maxIds).W)
@@ -29,7 +30,7 @@ class PFCCSRAccessIO extends Bundle {
   val interrupt = Input(Bool())
 }
 
-class PFCClient(val clientID: Int) extends Module {
+class CSRPFCClient(val clientID: Int) extends Module {
   val io = IO(new Bundle {
     val access = new PFCCSRAccessIO()
     val client = new PFCClientIO(clientID)
@@ -134,4 +135,89 @@ class PFCClient(val clientID: Int) extends Module {
 
   //debug
   when(csr_pfcr.io.deq.fire()) { printf("client %d get pfc %d\n", clientID.U, csr_pfcr.io.deq.bits) }
+}
+
+
+class OSDPFCClient(lclientID: Int, use: Boolean) extends Module { //OSDPFC use the last client ID
+  val io = IO(new Bundle {
+    val req    = Flipped(Decoupled(new OSDMAMReq()))
+    val resp   = Decoupled(UInt(64.W))
+    val client = new PFCClientIO(lclientID)
+  })
+
+  if(!use) {
+    io.req.ready            := false.B
+    io.resp.valid           := false.B
+    io.client.req.valid     := false.B
+    io.client.resp.ready    := false.B
+  } else {
+    val (s_IDLE :: s_REQ :: s_REC :: s_TAIL ::  Nil) = Enum(4)
+    val state = RegInit(s_IDLE)
+    val req   = Reg(new PFCReq(lclientID))
+    val resp  = Module(new Queue(UInt(64.W), 1))
+    val beats = Reg(UInt(11.W))
+    val timecount = RegInit(63.U)
+
+    //io.req   ---> req
+    val pfcmid       = io.req.bits.addr(31, 24)
+    val pfcram       = io.req.bits.addr(23)
+    val pfcpage      = io.req.bits.addr(22, 16)
+    /*val addrfour     = (0 until 16).map(i => Cat(io.req.bits.addr(i), io.req.bits.addr(i), io.req.bits.addr(i), io.req.bits.addr(i))) //narrow bit map
+    val pfcrebitmap  = Cat(addrfour(15), addrfour(14), addrfour(13), addrfour(12),
+                           addrfour(11), addrfour(10), addrfour(9),  addrfour(8),
+                           addrfour(7),  addrfour(6),  addrfour(5),  addrfour(4),
+                           addrfour(3),  addrfour(2),  addrfour(1),  "b1111".U) //ignore the lowest bit because it's always 0(align)
+    val pfcrabitmap  = Cat(io.req.bits.addr(15, 1), "b0".U) //ignore the lowest bit because it's always 0(align)
+    */
+    val pfcrebitmap  = "h_ffff_ffff_ffff_ffff".U
+    val pfcrabitmap  = 0.U(64.W)
+    val pfcbitmap    = Mux(pfcram, pfcrabitmap,  pfcrebitmap)
+
+    when(io.req.fire()) {
+      beats         := io.req.bits.beats(12,2) //16bits per io.req.bits.beats
+      req.dst       := pfcmid
+      req.ram       := pfcram
+      req.page      := pfcpage
+      req.bitmap    := pfcbitmap
+      //req.programID := req.programID + 1.U
+    }
+    when(io.client.resp.fire() && io.client.resp.bits.last) {
+      when(req.ram)  {  req.bitmap := req.bitmap + 1.U } //read the remaning content in ram page: ram has more than 64 counters
+      when(!req.ram) {  req.page   := req.page + 1.U   } //read the next reg page: reg page has 64 counters at most
+    }
+    io.req.ready    := state === s_IDLE
+
+    //req   --> io.client.req
+    io.client.req.valid           := state === s_REQ
+    io.client.req.bits.src        := lclientID.U
+    io.client.req.bits.dst        := req.dst
+    io.client.req.bits.ram        := req.ram
+    io.client.req.bits.page       := req.page
+    io.client.req.bits.bitmap     := Mux(req.ram, pfcrabitmap, pfcrebitmap) //pfcbitmap
+    io.client.req.bits.programID  := 0.U //req.programID
+
+    //io.client.resp  ---> resp
+    resp.io.enq.valid     :=  io.client.resp.valid || (state === s_TAIL)
+    resp.io.enq.bits      :=  Cat(Mux(state === s_TAIL, 1.U(1.W), 0.U(1.W)), io.client.resp.bits.data(62,0))
+    io.client.resp.ready  :=  resp.io.enq.ready
+    when(resp.io.enq.fire()) {
+       beats := Mux(beats=/=0.U, beats-1.U, 0.U)
+    }
+
+    //resp    ---> io.resp
+    io.resp  <> resp.io.deq
+
+    //timeout
+    when((state === s_REQ)  || (state === s_REC))     { timecount := timecount-1.U  }
+    when(resp.io.enq.fire())                          { timecount := 63.U           }
+    when((state === s_IDLE) || (state === s_TAIL))    { timecount := 63.U           }
+
+    //state
+    when(io.client.req.fire())                                       {  state := s_REC  }
+    when(timecount === 0.U)                                          {  state := s_TAIL }
+    when(io.client.resp.fire() && io.client.resp.bits.last)          {  state := s_REQ  }
+    when(beats === 0.U || ((beats === 1.U) && resp.io.enq.fire()))   {  state := s_IDLE }
+    when(io.req.fire())                                              {  state := s_REQ  }
+  }
+
 }

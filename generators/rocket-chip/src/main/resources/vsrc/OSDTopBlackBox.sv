@@ -45,6 +45,7 @@ module OSDTopBlackBox
    output [MAM_ADDR_WIDTH-1:0]   req_addr,
    output                        req_burst,
    output [13:0]                 req_beats,
+   output                        req_pfc,
    input                         read_valid,
    output                        read_ready,
    input  [MAM_DATA_WIDTH-1:0]   read_data,

@@ -30,5 +30,8 @@
 #include <opensocdebug.h>
 
 int memory_tests(struct osd_context *ctx);
+void osd_memory_pfc(struct osd_context *ctx, uint8_t sel);
+void osd_close_mempfc(struct osd_context *ctx, uint16_t modid);
+
 
 #endif

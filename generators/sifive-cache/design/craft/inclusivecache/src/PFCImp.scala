@@ -43,14 +43,14 @@ trait HasInclusiveCachePFCManager { this: sifive.blocks.inclusivecache.Inclusive
       val ITLinkEvent = pfcmanager.io.update.reg.get(restartid+2).asInstanceOf[TileLinkPFCReg]
       val OTLinkEvent = pfcmanager.io.update.reg.get(restartid+3).asInstanceOf[TileLinkPFCReg]
       val SetMiss     = pfcmanager.io.update.ram.get(rastartid+0)
-      val SetWB       = pfcmanager.io.update.ram.get(rastartid+1)
+      val SetEV       = pfcmanager.io.update.ram.get(rastartid+1)
 
       EventG0         := schedulers(i).io.pfcupdate.g0
       EventG1         := schedulers(i).io.pfcupdate.g1
       ITLinkEvent     := schedulers(i).io.pfcupdate.itlink
       OTLinkEvent     := schedulers(i).io.pfcupdate.otlink
       SetMiss         := schedulers(i).io.pfcupdate.setmiss
-      SetWB           := schedulers(i).io.pfcupdate.setwb
+      SetEV           := schedulers(i).io.pfcupdate.setev
 
    })
   } 
@@ -67,8 +67,8 @@ trait HasSchedulerPFC { this: sifive.blocks.inclusivecache.Scheduler =>
 
     io.pfcupdate.setmiss.valid := RegNext(sourceA.io.req.fire() && sourceA.io.req.bits.block)
     io.pfcupdate.setmiss.addr  := RegNext(sourceA.io.req.bits.set)
-    io.pfcupdate.setwb.valid   := RegNext(sourceC.io.req.fire() && sourceC.io.req.bits.opcode === TLMessages.ReleaseData)
-    io.pfcupdate.setwb.addr    := RegNext(sourceC.io.req.bits.set)
+    io.pfcupdate.setev.valid   := RegNext(sourceC.io.req.fire() && sourceC.io.req.bits.opcode === TLMessages.ReleaseData)
+    io.pfcupdate.setev.addr    := RegNext(sourceC.io.req.bits.set)
   } 
 
 }

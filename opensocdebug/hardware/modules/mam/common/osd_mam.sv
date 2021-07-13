@@ -53,6 +53,7 @@ module osd_mam
     output reg [ADDR_WIDTH-1:0]   req_addr, // Request base address
     output reg                    req_burst, // 0 for single beat access, 1 for incremental burst
     output reg [13:0]             req_beats, // Burst length in number of words
+    output                        req_pfc, //
 
     output reg                    write_valid, // Next write data is valid
     output reg [DATA_WIDTH-1:0]   write_data, // Write data
@@ -94,6 +95,8 @@ module osd_mam
    dii_flit dp_out, dp_in;
    logic        dp_out_ready, dp_in_ready;
 
+   logic [15:0] cmd;
+   assign req_pfc = cmd[0];
    osd_regaccess_layer
      #(.MODID(16'h3), .MODVERSION(16'h0),
        .MAX_REG_SIZE(16), .CAN_STALL(0))
@@ -133,6 +136,7 @@ module osd_mam
           16'h200: reg_rdata = 16'(DATA_WIDTH);
           16'h201: reg_rdata = 16'(ADDR_WIDTH);
           16'h202: reg_rdata = 16'(REGIONS);
+          16'h203: reg_rdata = cmd;
           default: reg_err = 1;
         endcase
       else if (reg_addr[15:7] == 9'h5) // 0x280-0x300
@@ -154,6 +158,15 @@ module osd_mam
             2: reg_rdata = mem_size[reg_addr[6:4]][47:32];
             3: reg_rdata = mem_size[reg_addr[6:4]][63:48];
           endcase // case (reg_addr[1:0])
+   end
+
+   always @(posedge clk) begin
+      if (rst) begin
+         cmd <= 16'h0000;
+      end else begin
+         if (reg_request & reg_write & (reg_addr == 16'h203))
+            cmd <= reg_wdata;
+      end
    end
 
    enum {

@@ -223,7 +223,7 @@ class InclusiveCache(
       scheduler
     }
 
-    createPFCManager(mods, cache.sets, p(freechips.rocketchip.subsystem.RocketTilesKey).length)
+    createPFCManager(mods, cache.sets, p(freechips.rocketchip.subsystem.RocketTilesKey).length+1)
 
     def json = s"""{"banks":[${mods.map(_.json).mkString(",")}]"""
   }

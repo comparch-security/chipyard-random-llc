@@ -42,7 +42,8 @@ VCS_NONCC_OPTS = \
 	+v2k +verilog2001ext+.v95+.vt+.vp +libext+.v \
 	-debug_pp \
 	+incdir+$(build_dir) \
-	$(sim_vsrcs)
+	$(sim_vsrcs) \
+	-top TestDriver
 
 PREPROC_DEFINES = \
 	+define+VCS \

@@ -47,11 +47,11 @@ void log_pfc(pfccsr_t* pfccsr) {
         kprintln("%ld: %ld", set, pfc);
       }  
     }
-    if(rpage == PFC_L1DSWB_RPAGE) {
+    if(rpage == PFC_L1DSEV_RPAGE) {
       for (i = 0; i < pfccsr->rnum; i++)  {
         uint64_t set = i+pfccsr->ramaddr;
         uint64_t pfc = pfccsr->r[i];
-        kprintf("CORE%d_L1DWB_SET", managerid);
+        kprintf("CORE%d_L1DEV_SET", managerid);
         if(set < 10) { kprintf("0"); }   if(set < 100) { kprintf("0"); }
         kprintln("%ld: %ld", set, pfc);
       }
@@ -83,11 +83,11 @@ void log_pfc(pfccsr_t* pfccsr) {
         kprintln("%ld: %ld", set, pfc);
       }
     }
-    if(rpage == PFC_L2SWB_RPAGE) {
+    if(rpage == PFC_L2SEV_RPAGE) {
       for (i = 0; i < recnum; i++)  {
         uint64_t set = i+pfccsr->ramaddr;
         uint64_t pfc = pfccsr->r[i];
-        kprintf("L2BANK%d_MISS_SET", managerid-PFC_L2BANK0_MANAGER);
+        kprintf("L2BANK%d_EV_SET", managerid-PFC_L2BANK0_MANAGER);
         if(set < 10) { kprintf("0"); }   if(set < 100) { kprintf("0"); }   if(set < 1000) { kprintf("0"); }
         kprintln("%ld: %ld", set, pfc);
       }

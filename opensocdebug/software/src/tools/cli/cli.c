@@ -135,11 +135,21 @@ static int interpret(struct osd_context *ctx, char *line) {
             }
 
             if(halt) osd_reset_system(ctx, 1);
+            osd_close_mempfc(ctx, mem);
             printf("Verify: %d\n", verify);
             osd_memory_loadelf(ctx, mem, file, verify);
             if(run)  osd_start_cores(ctx);
 
         }
+    } else if (CHECK_MATCH(cmd, "pfc")) {
+        uint8_t sel=3; //0 all core 1  l2 2 core+l2 3
+        char *subcmd = strtok(NULL, " ");
+        if (CHECK_MATCH(subcmd, "core")) {
+            sel = 1;
+        } else if (CHECK_MATCH(subcmd, "l2")) {
+            sel = 2;
+        }
+        osd_memory_pfc(ctx, sel);
     } else if (CHECK_MATCH(cmd, "stm")) {
         char *subcmd = strtok(NULL, " ");
 
@@ -282,7 +292,6 @@ static int interpret(struct osd_context *ctx, char *line) {
 
 int main(int argc, char* argv[]) {
     struct osd_context *ctx;
-
     int c;
     char *source = NULL;
     int batch = 0;
@@ -366,6 +375,7 @@ int main(int argc, char* argv[]) {
         }
     }
     osd_reset_system(ctx, 1);  //auto reset -halt
+    osd_close_mempfc(ctx, 3);  //auto close mempfc
     char enterminal[15] = "terminal 2";
     interpret(ctx, enterminal); //auto start terminal
     while (1) {

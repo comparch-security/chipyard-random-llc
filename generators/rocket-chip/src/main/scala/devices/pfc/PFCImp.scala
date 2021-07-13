@@ -509,7 +509,7 @@ object connect {
 
 
 trait HasPFCClient { this: freechips.rocketchip.rocket.CSRFile =>
-  val pfcclient = Module(new PFCClient(hartId))
+  val pfcclient = Module(new CSRPFCClient(hartId))
   def connectPFC = {
     io.pfcclient <> pfcclient.io.client
     pfcclient.io.access.addr       := io.rw.addr
@@ -534,8 +534,8 @@ trait HasL1DPFC { this: freechips.rocketchip.rocket.NonBlockingDCacheModule =>
     val wbSetaddr   = WireInit((tl_out.c.bits.address >> blockOffBits)(log2Up(nSets)-1, 0))
     io.pfcupdate.setmiss.valid := edge.done(tl_out.a)
     io.pfcupdate.setmiss.addr  := missSetIdx
-    io.pfcupdate.setwb.valid := edge.done(tl_out.c)
-    io.pfcupdate.setwb.addr  := wbSetaddr
+    io.pfcupdate.setev.valid := edge.done(tl_out.c)
+    io.pfcupdate.setev.addr  := wbSetaddr
  }
 }
 
@@ -660,8 +660,8 @@ trait HasTilePFCNode { this: freechips.rocketchip.tile.BaseTile =>
    //val pfc       = InModuleBody { pfcnode.bundle }
    //val pfclnode  = new BundleBridgeSink(Some(() => (new PFCClientIO(p(freechips.rocketchip.subsystem.RocketTilesKey).length).cloneType)))  //not work :PFCNetwork.scala: clnodes
    //val pfcmaode  = new BundleBridgeSink(Some(() => (new PFCManagerIO(p(freechips.rocketchip.subsystem.RocketTilesKey).length).cloneType))) //not work :PFCNetwork.scala: manodes
-   val pfclnode  = BundleBridgeSource(() => (new PFCClientIO(p(freechips.rocketchip.subsystem.RocketTilesKey).length).cloneType))
-   val pfcmaode  = BundleBridgeSource(() => (new PFCManagerIO(p(freechips.rocketchip.subsystem.RocketTilesKey).length).cloneType))
+   val pfclnode  = BundleBridgeSource(() => (new PFCClientIO(p(freechips.rocketchip.subsystem.RocketTilesKey).length+1).cloneType))
+   val pfcmaode  = BundleBridgeSource(() => (new PFCManagerIO(p(freechips.rocketchip.subsystem.RocketTilesKey).length+1).cloneType))
    val pfccl     = InModuleBody { pfclnode.bundle }
    val pfcma     = InModuleBody { pfcmaode.bundle }
 }
@@ -759,7 +759,7 @@ trait CanAttachTiletoPFC { this:  freechips.rocketchip.subsystem.CanAttachTile =
 trait HasTilePFCManager { this: freechips.rocketchip.tile.RocketTileModuleImp =>
 
   val pfcmanager = Module(new PFCManager(
-    nClients = p(freechips.rocketchip.subsystem.RocketTilesKey).length, 
+    nClients = p(freechips.rocketchip.subsystem.RocketTilesKey).length+1,
     rebt = Some(Seq(new P0RocketCorePFCReg(),  // order !!!!!
                     new P1RocketCorePFCReg(),
                     new P2FrontendPFCReg(),
@@ -782,7 +782,7 @@ trait HasTilePFCManager { this: freechips.rocketchip.tile.RocketTileModuleImp =>
 
   val L1ISetMiss =  pfcmanager.io.update.ram.get(0)
   val L1DSetMiss =  pfcmanager.io.update.ram.get(1)
-  val L1DSetWB   =  pfcmanager.io.update.ram.get(2)
+  val L1DSetEV   =  pfcmanager.io.update.ram.get(2)
 
   def connectPFC = {
     core.io.pfcclient <> outer.pfccl
@@ -797,7 +797,7 @@ trait HasTilePFCManager { this: freechips.rocketchip.tile.RocketTileModuleImp =>
     CoreEventG0  := core.io.pfcupdate.eventG0
     L1ISetMiss   := outer.frontend.module.io.pfcupdate.setmiss 
     L1DSetMiss   := outer.dcache.module.io.pfcupdate.setmiss
-    L1DSetWB     := outer.dcache.module.io.pfcupdate.setwb
+    L1DSetEV     := outer.dcache.module.io.pfcupdate.setev
 
   }
 
@@ -805,9 +805,10 @@ trait HasTilePFCManager { this: freechips.rocketchip.tile.RocketTileModuleImp =>
 
 trait HasPFCnetwork  { this: freechips.rocketchip.subsystem.BaseSubsystem =>
   val pfbus = {
-    val nClients = p(freechips.rocketchip.subsystem.RocketTilesKey).length
+    val nTiless  = p(freechips.rocketchip.subsystem.RocketTilesKey).length
+    val nClients = nTiless+1  //1 more fore osd
     val ClientIds  = (0 until nClients).map(i => i).toList.toSeq
-    val TilepfcIds = (0 until nClients).map(i => (i,i)).toList.toSeq
+    val TilepfcIds = (0 until nTiless).map(i => (i,i)).toList.toSeq
     val ManagerIds = TilepfcIds ++ PFCManagerIds.L2Bank0pfcIds
     
     LazyModule(new PFCNetworkl(ClientIds, ManagerIds))

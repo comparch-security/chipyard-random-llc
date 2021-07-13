@@ -6,6 +6,7 @@ import freechips.rocketchip.tilelink._
 import freechips.rocketchip.diplomacy._
 import freechips.rocketchip.subsystem.BaseSubsystem
 import freechips.rocketchip.config.Parameters
+import freechips.rocketchip.pfc._
 
 object OSDMAMParams {
   val dw:    Int = 16       //IODataWidth bits 
@@ -25,6 +26,7 @@ class OSDMAMReq() extends Bundle() {
   val addr  = UInt(OSDMAMParams.aw.W) //allign c.dwB
   val burst = Bool()    // 0: single, 1: incremental burst
   val beats = UInt(OSDMAMParams.bw.W)
+  val pfc   = Bool()    // 0: mem, 1: pfc
 }
 
 class OSDMAMWData() extends Bundle() {
@@ -51,6 +53,9 @@ class OSDMAM(implicit p: Parameters) extends LazyModule {
 
   val node = TLClientNode(Seq(TLMasterPortParameters.v1(
     clients = Seq(TLMasterParameters.v1(name = "OSD MAM", sourceId = IdRange(0, 8))))))
+
+  val pfclnode   = BundleBridgeSource(() => (new PFCClientIO(p(freechips.rocketchip.subsystem.RocketTilesKey).length+1).cloneType))
+  val pfccl      = InModuleBody { pfclnode.bundle }
 
   val osdmamnode = BundleBridgeSource(() => (new OSDMAMIO().flip).cloneType)
   val io = InModuleBody { osdmamnode.bundle }
@@ -97,7 +102,9 @@ class OSDMAM(implicit p: Parameters) extends LazyModule {
     val next_ws1_beats  = ws1_req.beats - 1.U
     val next_ws1_addr   = ws1_req.addr + mam_dwB.U            //full addr
     val next_ws1_byaddr = next_ws1_addr(lgmem_dwB-1,0)        //byte addr in a beat
-    
+
+    val enpfc     = true
+    val pfcclient = Module(new OSDPFCClient(p(freechips.rocketchip.subsystem.RocketTilesKey).length, enpfc))
     // -------------req   stage-----------------------//
     io.req.ready := !busy
     rwaitacks    := rwaitacks  - mem.d.fire() + mem.a.fire()
@@ -111,7 +118,7 @@ class OSDMAM(implicit p: Parameters) extends LazyModule {
       rinflights  := 0.U
       wwaitacks   := 0.U
       winflights  := 0.U
-      req.addr    := Cat(io.req.bits.addr >> lgmem_dwB, 0.U(lgmem_dwB.W)) //must align
+      req.addr    := io.req.bits.addr // align??
       req_endaddr := io.req.bits.addr + (Mux(io.req.bits.burst, io.req.bits.beats, 1.U) << lgmam_dwB)
       when(io.req.bits.rw) {
         ws1_busy    := true.B
@@ -138,8 +145,9 @@ class OSDMAM(implicit p: Parameters) extends LazyModule {
 
     // ------------- read stage -----------------------//
     rs0_dq.io.enq  <> mem.d
-    rs0_dq.io.enq.valid := mem.d.valid & rs1_busy
-    rs0_dq.io.deq.ready := !rs1_full
+    rs0_dq.io.enq.valid     := Mux(req.pfc, pfcclient.io.resp.valid, mem.d.valid)  & rs1_busy
+    rs0_dq.io.enq.bits.data := Mux(req.pfc, pfcclient.io.resp.bits,  mem.d.bits.data)
+    rs0_dq.io.deq.ready     := !rs1_full
     when(rs1_busy) {
       when (rs0_dq.io.deq.fire()) {        // rs0_dq --> rs1_data
         rs1_full := true.B
@@ -198,21 +206,37 @@ class OSDMAM(implicit p: Parameters) extends LazyModule {
     // ------------- mem stage -----------------------//
     val memget = edge.Get(
           fromSource = rinflights,  //inflights
-          toAddress  = req.addr,
+          toAddress  = Cat(req.addr >> lgmem_dwB, 0.U(lgmem_dwB.W)), //must align
           lgSize     = lgmem_dwB.U)
     val memput = edge.Put(
           fromSource = winflights,  //inflights
-          toAddress  = req.addr,
+          toAddress  = Cat(req.addr >> lgmem_dwB, 0.U(lgmem_dwB.W)), //must align
           lgSize     = lgmem_dwB.U,
           data       = ws2_dq.io.deq.bits.data,
           mask       = ws2_dq.io.deq.bits.mask,
           corrupt    = false.B)
     mem.a.bits      := Mux(req.rw, memput._2, memget._2)
-    mem.a.valid     := Mux(req.rw, ws2_dq.io.deq.valid & (wwaitacks < 7.U), rs1_busy & (rwaitacks < 1.U) & (req.addr < req_endaddr)) 
+    mem.a.valid     := Mux(req.rw, ws2_dq.io.deq.valid & (wwaitacks < 7.U), rs1_busy & (rwaitacks < 1.U) & (req.addr < req_endaddr)) & !req.pfc
     mem.d.ready     := Mux(req.rw, true.B,  rs0_dq.io.enq.ready)
-    when(mem.a.valid) {
+    /*when(mem.a.valid) {
       when(req.rw  & putlegal) { putlegal := memput._1 }
       when(!req.rw & getlegal) { getlegal := memget._1 }
+    }*/
+
+    // ------------- pfc stage -----------------------//
+    pfccl <>  pfcclient.io.client
+    if(enpfc) {
+      val trigger = RegInit(false.B)
+      when(io.req.fire() && io.req.bits.pfc && !io.req.bits.rw)  {
+        trigger      :=  true.B
+        rs1_req.addr := 0.U
+      }
+      pfcclient.io.req.bits   :=  req
+      pfcclient.io.req.valid  :=  trigger
+      pfcclient.io.resp.ready :=  rs0_dq.io.enq.ready
+      when(pfcclient.io.req.fire()) { trigger := false.B  }
+    } else {
+      req.pfc := false.B
     }
   }
 }
@@ -223,4 +247,5 @@ trait HasOSDMAM { this: BaseSubsystem =>
   val osdmam    = LazyModule(new OSDMAM()(p))
   val osdmamnode = osdmam.osdmamnode.makeSink()(p)
   fbus.fromPort(Some("OSD MAM"))() := osdmam.node
+  pfbus.clnodes(p(freechips.rocketchip.subsystem.RocketTilesKey).length) := osdmam.pfclnode
 }

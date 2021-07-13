@@ -226,7 +226,7 @@ class HellaCacheBundle(val outer: HellaCache)(implicit p: Parameters) extends Co
   val errors = new DCacheErrors
   val pfcupdate = new Bundle { 
     val setmiss = Flipped(new SetEventPFCRam())
-    val setwb   = Flipped(new SetEventPFCRam())
+    val setev   = Flipped(new SetEventPFCRam())
   }
 
 }

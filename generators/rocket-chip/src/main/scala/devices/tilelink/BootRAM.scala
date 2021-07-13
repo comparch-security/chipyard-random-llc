@@ -64,7 +64,7 @@ class BlackBoxBootram(dwidth: Int, awidth: Int) extends
       |      add_r <= addr;
       |  end
       |end
-      |initial begin $readmemh("./obj/boot.mem", ram); end
+      |//initial begin $readmemh("./obj/boot.mem", ram); end
       |      
       |endmodule
     """.stripMargin)

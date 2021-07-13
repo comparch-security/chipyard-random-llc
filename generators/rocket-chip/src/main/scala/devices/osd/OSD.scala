@@ -74,6 +74,7 @@ class OSDTopBlackBoxIO extends Bundle {
    val req_addr        = UInt(OUTPUT, 32.W)
    val req_burst       = Bool(OUTPUT)
    val req_beats       = UInt(OUTPUT, 14.W)
+   val req_pfc         = Bool(OUTPUT)
    val read_valid      = Bool(INPUT)
    val read_ready      = Bool(OUTPUT)
    val read_data       = UInt(INPUT,  16.W)
@@ -216,6 +217,7 @@ class OSD extends Module() {
   io.mam.req.bits.addr      := osdtbb.io.req_addr
   io.mam.req.bits.burst     := osdtbb.io.req_burst
   io.mam.req.bits.beats     := osdtbb.io.req_beats
+  io.mam.req.bits.pfc       := osdtbb.io.req_pfc
   osdtbb.io.read_valid      := io.mam.rdata.valid
   io.mam.rdata.ready        := osdtbb.io.read_ready
   osdtbb.io.read_data       := io.mam.rdata.bits.data

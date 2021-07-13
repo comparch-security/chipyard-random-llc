@@ -60,14 +60,14 @@
 
 #define PFC_L1ISM_RPAGE        0x80
 #define PFC_L1DSM_RPAGE        0x81
-#define PFC_L1DSWB_RPAGE       0x82
+#define PFC_L1DSEV_RPAGE       0x82
 
 #define PFC_L2_RPAGEP0         0x00
 #define PFC_L2_RPAGEP1         0x01
 #define PFC_L2_RITLINK         0x02
 #define PFC_L2_ROTLINK         0x03
 #define PFC_L2SM_RPAGE         0x80
-#define PFC_L2SWB_RPAGE        0x81
+#define PFC_L2SEV_RPAGE        0x81
 
 
 #endif /* _PFC_H */
