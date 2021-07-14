@@ -7,8 +7,10 @@
 
 int dramsim = -1;
 unsigned long loadmem_addr = 0;
+unsigned long loadelf_addr = 0;
 std::string ini_dir = "dramsim2_ini";
 std::string loadmem_file = "";
+std::string loadelf_file = "";
 
 extern "C" void *memory_init(
         long long int mem_size,
@@ -35,6 +37,10 @@ extern "C" void *memory_init(
                 loadmem_addr = stol(arg.substr(strlen("+loadmem_addr=")), NULL, 16);
             if (arg.find("+loadmem=") == 0)
                 loadmem_file = arg.substr(strlen("+loadmem="));
+            if (arg.find("+loadelf_addr=") == 0)
+                loadelf_addr = stol(arg.substr(strlen("+loadelf_addr=")), NULL, 16);
+            if (arg.find("+loadelf=") == 0)
+                loadelf_file = arg.substr(strlen("+loadelf="));
         }
     }
 
@@ -46,6 +52,8 @@ extern "C" void *memory_init(
     mm->init(mem_size, word_size, line_size);
     if (loadmem_file != "")
         mm->load_mem(loadmem_addr, loadmem_file.c_str());
+    if (loadelf_file != "")
+        mm->load_elf(loadelf_addr, loadelf_file.c_str());
 
     return mm;
 }

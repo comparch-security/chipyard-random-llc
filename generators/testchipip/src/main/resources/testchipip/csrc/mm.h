@@ -62,6 +62,7 @@ class mm_t
   virtual ~mm_t();
 
   void load_mem(unsigned long start, const char *fname);
+  void load_elf(unsigned long start, const char *fname);
 
  protected:
   uint8_t* data;

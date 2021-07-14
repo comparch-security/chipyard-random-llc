@@ -7,6 +7,9 @@
 #include <cstring>
 #include <cassert>
 #include <sys/mman.h>
+#include <unistd.h>
+#include <gelf.h>
+#include <fcntl.h>
 
 void mm_t::write(uint64_t addr, uint8_t *data, uint64_t strb, uint64_t size)
 {
@@ -149,4 +152,64 @@ void mm_t::load_mem(unsigned long start, const char *fname)
       abort();
     }
   }
+}
+
+void mm_t::load_elf(unsigned long start, const char *fname)
+{
+  int fd;
+  Elf *elf_object;
+  int64_t arrNum;
+  size_t num;
+
+  fd = open(fname, O_RDONLY , 0);
+  if (fd < 0) {
+    fprintf(stderr, "load_elf_Err: Cannot open file\n");
+    abort();
+  }
+
+  if (elf_version(EV_CURRENT) == EV_NONE) {
+    fprintf(stderr, "load_elf_Err: elf_version\n");
+    abort();
+  }
+
+  elf_object = elf_begin(fd , ELF_C_READ , NULL);
+  if (elf_object == NULL) {
+    fprintf(stderr, "load_elf_Err: %s\n", elf_errmsg(-1));
+    abort();
+  }
+
+  // Load program headers
+  if (elf_getphdrnum(elf_object, &num)) {
+    fprintf(stderr, "load_elf_Err: Load program headers\n");
+    abort();
+  }
+
+  for (size_t i = 0; i < num; i++) {
+    //printf("Load program header %zu\n", i);
+    GElf_Phdr phdr;
+    Elf_Data *elf_data;
+    if (gelf_getphdr(elf_object, i, &phdr) != &phdr) {
+      fprintf(stderr, "load_elf_Err: Load program headers\n");
+      abort();
+    }
+
+    elf_data = elf_getdata_rawchunk(elf_object, phdr.p_offset, phdr.p_filesz, ELF_T_BYTE);
+    if (elf_data) {
+      for (ssize_t ii = 0; ii < elf_data->d_size; ii++) {
+        arrNum = phdr.p_paddr+ii-start;
+        if(arrNum>=0) data[arrNum] = *(((char*)elf_data->d_buf)+ii);
+      }
+    }
+    Elf32_Word init_with_zero = phdr.p_memsz - phdr.p_filesz;
+    if (init_with_zero > 0) {
+      void *zeroes = calloc(1, phdr.p_memsz - phdr.p_filesz);
+      for (ssize_t ii = 0; ii < init_with_zero; ii++) {
+        arrNum=phdr.p_paddr+phdr.p_filesz+ii-start;
+        if(arrNum>=0) data[arrNum] = (char)0;
+      }
+      free(zeroes);
+    }
+  }
+  close(fd);
+  //printf("OK\n");
 }

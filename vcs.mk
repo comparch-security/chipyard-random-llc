@@ -9,7 +9,7 @@ SEED_FLAG=+ntb_random_seed_automatic
 endif
 
 CLOCK_PERIOD ?= 1.0
-RESET_DELAY ?= 777.7
+RESET_DELAY ?= 7.7
 
 #----------------------------------------------------------------------------------------
 # gcc configuration/optimization
@@ -20,6 +20,10 @@ VCS_CXXFLAGS = $(SIM_CXXFLAGS)
 VCS_LDFLAGS = $(SIM_LDFLAGS)
 
 # vcs requires LDFLAGS to not include library names (i.e. -l needs to be separate)
+VCS_NOVAS_OPTS = \
+	+define+FSDB \
+	-P ${VERDI_HOME}/share/PLI/VCS/LINUX64/novas.tab ${VERDI_HOME}/share/PLI/VCS/LINUX64/pli.a
+
 VCS_CC_OPTS = \
 	-CFLAGS "$(VCS_CXXFLAGS)" \
 	-LDFLAGS "$(filter-out -l%,$(VCS_LDFLAGS))" \

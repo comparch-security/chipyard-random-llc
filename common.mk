@@ -254,17 +254,24 @@ run-binary-fast-hex: override SIM_FLAGS += +loadmem=$(LOADMEM) +loadmem_addr=$(L
 #########################################################################################
 # run assembly/benchmarks rules
 #########################################################################################
+EMPTY=$(RISCV_TEST)/empty/empty.riscv
 $(output_dir):
 	mkdir -p $@
 
-$(output_dir)/%: $(RISCV)/riscv64-unknown-elf/share/riscv-tests/isa/% $(output_dir)
+$(output_dir)/%: $(RISCV_TEST)/isa/% $(output_dir)
 	ln -sf $< $@
 
+#$(output_dir)/%.run: $(output_dir)/% $(sim)
+#	(set -o pipefail && $(NUMA_PREFIX) $(sim) $(PERMISSIVE_ON) $(SIM_FLAGS) $(EXTRA_SIM_FLAGS) $(SEED_FLAG) $(PERMISSIVE_OFF) $< </dev/null | tee $<.log) && touch $@
+
+#$(output_dir)/%.out: $(output_dir)/% $(sim)
+#	(set -o pipefail && $(NUMA_PREFIX) $(sim) $(PERMISSIVE_ON) $(SIM_FLAGS) $(EXTRA_SIM_FLAGS) $(SEED_FLAG) $(VERBOSE_FLAGS) $(PERMISSIVE_OFF) $< </dev/null 2> >(spike-dasm > $@) | tee $<.log)
+
 $(output_dir)/%.run: $(output_dir)/% $(sim)
-	(set -o pipefail && $(NUMA_PREFIX) $(sim) $(PERMISSIVE_ON) $(SIM_FLAGS) $(EXTRA_SIM_FLAGS) $(SEED_FLAG) $(PERMISSIVE_OFF) $< </dev/null | tee $<.log) && touch $@
+	(set -o pipefail && $(NUMA_PREFIX) $(sim) $(PERMISSIVE_ON) $(SIM_FLAGS) +loadelf=$< $(EXTRA_SIM_FLAGS) $(SEED_FLAG) $(PERMISSIVE_OFF) $(EMPTY) </dev/null | tee $<.log) && touch $@
 
 $(output_dir)/%.out: $(output_dir)/% $(sim)
-	(set -o pipefail && $(NUMA_PREFIX) $(sim) $(PERMISSIVE_ON) $(SIM_FLAGS) $(EXTRA_SIM_FLAGS) $(SEED_FLAG) $(VERBOSE_FLAGS) $(PERMISSIVE_OFF) $< </dev/null 2> >(spike-dasm > $@) | tee $<.log)
+	(set -o pipefail && $(NUMA_PREFIX) $(sim) $(PERMISSIVE_ON) $(SIM_FLAGS) +loadelf=$< $(EXTRA_SIM_FLAGS) $(SEED_FLAG) $(VERBOSE_FLAGS) $(PERMISSIVE_OFF) $(EMPTY) </dev/null 2> >(spike-dasm > $@) | tee $<.log)
 
 #########################################################################################
 # include build/project specific makefrags made from the generator

@@ -33,7 +33,7 @@ run-$makeTargetName-fst: $$(addprefix $$(output_dir)/, $$(addsuffix .fst, $$($ma
 }
 
 class AssemblyTestSuite(prefix: String, val names: LinkedHashSet[String])(val envName: String) extends RocketTestSuite {
-  val dir = "$(RISCV)/riscv64-unknown-elf/share/riscv-tests/isa"
+  val dir = "$(RISCV_TEST)/isa"
   val makeTargetName = prefix + "-" + envName + "-asm-tests"
   def kind = "asm"
   override def toString = s"$makeTargetName = \\\n" + names.map(n => s"\t$prefix-$envName-$n").mkString(" \\\n") + postScript
@@ -48,7 +48,7 @@ class BenchmarkTestSuite(makePrefix: String, val dir: String, val names: LinkedH
 
 class RegressionTestSuite(val names: LinkedHashSet[String]) extends RocketTestSuite {
   val envName = ""
-  val dir = "$(RISCV)/riscv64-unknown-elf/share/riscv-tests/isa"
+  val dir = "$(RISCV_TEST)/isa"
   val makeTargetName = "regression-tests"
   def kind = "regression"
   override def toString = s"$makeTargetName = \\\n" + names.mkString(" \\\n")
@@ -164,18 +164,18 @@ object DefaultTestSuites {
   val rv64i = List(rv64ui, rv64si, rv64mi)
   val rv64pi = List(rv64ui, rv64mi)
 
-  val benchmarks = new BenchmarkTestSuite("rvi", "$(RISCV)/riscv64-unknown-elf/share/riscv-tests/benchmarks", LinkedHashSet(
+  val benchmarks = new BenchmarkTestSuite("rvi", "$(RISCV_TEST)/benchmarks", LinkedHashSet(
     "median", "multiply", "qsort", "towers", "vvadd", "dhrystone", "mt-matmul"))
 
-  val rv32udBenchmarks = new BenchmarkTestSuite("rvd", "$(RISCV)/riscv64-unknown-elf/share/riscv-tests/benchmarks", LinkedHashSet(
+  val rv32udBenchmarks = new BenchmarkTestSuite("rvd", "$(RISCV_TEST)/benchmarks", LinkedHashSet(
     "mm", "spmv", "mt-vvadd"))
 
   val emptyBmarks = new BenchmarkTestSuite("empty",
-    "$(RISCV)/riscv64-unknown-elf/share/riscv-tests/benchmarks", LinkedHashSet.empty)
+    "$(RISCV_TEST)/benchmarks", LinkedHashSet.empty)
 
   val singleRegression = new RegressionTestSuite(LinkedHashSet("rv64ui-p-simple"))
 
-  val mtBmarks = new BenchmarkTestSuite("mt", "$(RISCV)/riscv64-unknown-elf/share/riscv-tests/mt",
+  val mtBmarks = new BenchmarkTestSuite("mt", "$(RISCV_TEST)/mt",
     LinkedHashSet(((0 to 4).map("vvadd"+_) ++
     List("ad","ae","af","ag","ai","ak","al","am","an","ap","aq","ar","at","av","ay","az",
          "bb","bc","bf","bh","bj","bk","bm","bo","br","bs","ce","cf","cg","ci","ck","cl",

@@ -188,10 +188,12 @@ PERMISSIVE_OFF=+permissive-off
 BINARY ?=
 LOADMEM ?=
 LOADMEM_ADDR ?= 81000000
+LOADELF_ADDR ?= 80000000
 override SIM_FLAGS += +dramsim +dramsim_ini_dir=$(TESTCHIP_DIR)/src/main/resources/dramsim2_ini +max-cycles=$(timeout_cycles)
 ifneq ($(LOADMEM),)
 override SIM_FLAGS += +loadmem=$(LOADMEM) +loadmem_addr=$(LOADMEM_ADDR)
 endif
+override SIM_FLAGS += +loadelf_addr=$(LOADELF_ADDR)
 VERBOSE_FLAGS ?= +verbose
 sim_out_name = $(output_dir)/$(subst $() $(),_,$(notdir $(basename $(BINARY))))
 binary_hex= $(sim_out_name).loadmem_hex

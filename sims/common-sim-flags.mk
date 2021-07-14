@@ -19,5 +19,6 @@ SIM_LDFLAGS = \
 	-L$(sim_dir) \
 	-L$(dramsim_dir) \
 	-lfesvr \
+	-lelf \
 	-ldramsim \
 	$(EXTRA_SIM_LDFLAGS)
