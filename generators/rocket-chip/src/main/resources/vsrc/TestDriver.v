@@ -51,11 +51,13 @@ module TestDriver;
 
     if ($value$plusargs("vcdplusfile=%s", vcdplusfile))
     begin
+`ifndef FSDB
 `ifdef VCS
       $vcdplusfile(vcdplusfile);
 `else
       $fdisplay(stderr, "Error: +vcdplusfile is VCS-only; use +vcdfile instead or recompile with VCS=1");
       $fatal;
+`endif
 `endif
     end
 
@@ -67,7 +69,7 @@ module TestDriver;
       //$fsdbDumpSVA;
 `else
       $fdisplay(stderr, "Error: +fsdbfile is FSDB-only; use +vcdfile/+vcdplus instead or recompile with FSDB=1");
-      $fatal;
+      //$fatal;
 `endif
     end
 
