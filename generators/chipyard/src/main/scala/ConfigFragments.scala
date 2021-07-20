@@ -49,7 +49,7 @@ class WithGPIO extends Config((site, here, up) => {
 
 class WithUART(baudrate: BigInt = 115200) extends Config((site, here, up) => {
   case PeripheryUARTKey => Seq(
-    UARTParams(address = 0x54000000L, nTxEntries = 256, nRxEntries = 256, initBaudRate = baudrate))
+    UARTParams(address = 0x64000000L, nTxEntries = 256, nRxEntries = 256, initBaudRate = baudrate))
 })
 
 class WithSPIFlash(size: BigInt = 0x10000000) extends Config((site, here, up) => {

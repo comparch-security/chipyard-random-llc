@@ -81,7 +81,7 @@ class WithGPIOTiedOff extends OverrideHarnessBinder({
 // DOC include start: WithUARTAdapter
 class WithUARTAdapter extends OverrideHarnessBinder({
   (system: HasPeripheryUARTModuleImp, th: HasHarnessSignalReferences, ports: Seq[UARTPortIO]) => {
-    UARTAdapter.connect(ports)(system.p)
+    UARTAdapter.connect(ports, div=0.toInt)
   }
 })
 // DOC include end: WithUARTAdapter

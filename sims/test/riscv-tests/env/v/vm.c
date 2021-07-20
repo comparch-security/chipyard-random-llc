@@ -64,13 +64,14 @@ void wtf()
 #define user_l2pt pt[1]
 #if __riscv_xlen == 64
 # define NPT 4
-#define kernel_l2pt pt[2]
+# define kernel_l2pt pt[2]
 # define user_l3pt pt[3]
 #else
 # define NPT 2
 # define user_l3pt user_l2pt
 #endif
-pte_t pt[NPT][PTES_PER_PT] __attribute__((aligned(PGSIZE)));
+#define boot_l2pt pt[NPT]
+pte_t pt[NPT+1][PTES_PER_PT] __attribute__((aligned(PGSIZE)));
 
 typedef struct { pte_t addr; void* next; } freelist_t;
 
@@ -229,6 +230,12 @@ void vm_boot(uintptr_t test_addr)
 #else
   l1pt[PTES_PER_PT-1] = (DRAM_BASE/RISCV_PGSIZE << PTE_PPN_SHIFT) | PTE_V | PTE_R | PTE_W | PTE_X | PTE_A | PTE_D;
   uintptr_t vm_choice = SATP_MODE_SV32;
+#endif
+  // map boot(host:0x2f000 - 0x2ffff): vpn is from dump file
+#if __riscv_xlen == 64
+  l1pt[PTES_PER_PT-3] = ((pte_t)boot_l2pt >> PGSHIFT << PTE_PPN_SHIFT) | PTE_V;
+  boot_l2pt[PTES_PER_PT-1] = (0 << PTE_PPN_SHIFT) | PTE_V | PTE_R | PTE_W | PTE_X | PTE_A | PTE_D;
+#else
 #endif
   write_csr(sptbr, ((uintptr_t)l1pt >> PGSHIFT) |
                    (vm_choice * (SATP_MODE & ~(SATP_MODE<<1))));

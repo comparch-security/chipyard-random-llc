@@ -40,9 +40,10 @@ class UARTAdapter(uartno: Int, div: Int) extends Module
   // iterate through bits in byte to deserialize
   val (txDataIdx, txDataWrap) = Counter(txState === sTxData && txfifo.io.enq.ready, DATA_WIDTH)
   // iterate using div to convert clock rate to baud
-  val (txBaudCount, txBaudWrap) = Counter(txState === sTxWait && txfifo.io.enq.ready, div)
+  val (txBaudCount, txBaudWrap) = Counter(txState === sTxWait && txfifo.io.enq.ready, div.max(1))
   val (txSlackCount, txSlackWrap) = Counter(txState === sTxIdle && uart_io.txd === 0.U && txfifo.io.enq.ready, 4)
 
+  if(div>0) {
   switch(txState) {
     is(sTxIdle) {
       when(txSlackWrap) {
@@ -70,7 +71,30 @@ class UARTAdapter(uartno: Int, div: Int) extends Module
         txState := sTxIdle
       }
     }
-  }
+  }} else {
+  switch(txState) {
+    is(sTxIdle) {
+      when(uart_io.txd === 0.U) {
+        txData  := 0.U
+        txState := sTxData
+      }
+    }
+    is(sTxData) {
+      when (txfifo.io.enq.ready) {
+        txData := txData | (uart_io.txd << txDataIdx)
+      }
+      when(txDataWrap) {
+        txState := Mux(uart_io.txd === 1.U, sTxIdle, sTxBreak)
+      }.elsewhen(txfifo.io.enq.ready) {
+        txState := sTxData
+      }
+    }
+    is(sTxBreak) {
+      when(uart_io.txd === 1.U && txfifo.io.enq.ready) {
+        txState := sTxIdle
+      }
+    }
+  }}
 
   txfifo.io.enq.bits  := txData
   txfifo.io.enq.valid := txDataWrap
@@ -78,11 +102,12 @@ class UARTAdapter(uartno: Int, div: Int) extends Module
   val sRxIdle :: sRxStart :: sRxData :: Nil = Enum(3)
   val rxState = RegInit(sRxIdle)
   // iterate using div to convert clock rate to baud
-  val (rxBaudCount, rxBaudWrap) = Counter(txfifo.io.enq.ready, div)
+  val (rxBaudCount, rxBaudWrap) = Counter(txfifo.io.enq.ready, div.max(1))
   // iterate through bits in byte to deserialize
   val (rxDataIdx, rxDataWrap) = Counter(rxState === sRxData && txfifo.io.enq.ready && rxBaudWrap, DATA_WIDTH)
 
   uart_io.rxd := 1.U
+  if(div>0) {
   switch(rxState) {
     is(sRxIdle) {
       uart_io.rxd := 1.U
@@ -102,7 +127,27 @@ class UARTAdapter(uartno: Int, div: Int) extends Module
         rxState := sRxIdle
       }
     }
-  }
+  }} else {
+  rxBaudWrap := true.B
+  switch(rxState) {
+    is(sRxIdle) {
+      uart_io.rxd := 1.U
+      when (rxfifo.io.deq.valid) {
+        rxState := sRxStart
+      }
+    }
+    is(sRxStart) {
+      uart_io.rxd := 0.U
+      rxState := sRxData
+    }
+    is(sRxData) {
+      uart_io.rxd := (rxfifo.io.deq.bits >> rxDataIdx)(0)
+      when(rxDataWrap) {
+        rxState := sRxIdle
+      }
+    }
+  }}
+
   rxfifo.io.deq.ready := (rxState === sRxData) && rxDataWrap && rxBaudWrap && txfifo.io.enq.ready
 
   val sim = Module(new SimUART(uartno))

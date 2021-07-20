@@ -902,6 +902,8 @@ class Rocket(tile: RocketTile)(implicit p: Parameters) extends CoreModule()(p)
   coreMonitorBundle.excpt := csr.io.trace(0).exception
   coreMonitorBundle.priv_mode := csr.io.trace(0).priv
 
+  //if (true)  {
+  if (false) {
   if (enableCommitLog) {
     val t = csr.io.trace(0)
     val rd = wb_waddr
@@ -942,7 +944,7 @@ class Rocket(tile: RocketTile)(implicit p: Parameters) extends CoreModule()(p)
          Mux(wb_ctrl.rxs2 || wb_ctrl.rfs2, coreMonitorBundle.rd1val, 0.U),
          coreMonitorBundle.inst, coreMonitorBundle.inst)
     }
-  }
+  }}
 
   // CoreMonitorBundle for late latency writes
   val xrfWriteBundle = Wire(new CoreMonitorBundle(xLen, fLen))

@@ -396,7 +396,7 @@ class WithTimebase(hertz: BigInt) extends Config((site, here, up) => {
 class WithDefaultMemPort extends Config((site, here, up) => {
   case ExtMem => Some(MemoryPortParams(MasterPortParams(
                       base = x"8000_0000",
-                      size = x"1000_0000",
+                      size = x"4000_0000",
                       beatBytes = site(MemoryBusKey).beatBytes,
                       idBits = 4), 1))
 })

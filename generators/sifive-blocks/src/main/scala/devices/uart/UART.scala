@@ -74,7 +74,8 @@ class UART(busWidthBytes: Int, val c: UARTParams, divisorInit: Int = 0)
     Resource(ResourceAnchors.aliases, "uart").bind(ResourceAlias(device.label))
   }
 
-  require(divisorInit != 0, "UART divisor wasn't initialized during instantiation")
+  //require(divisorInit != 0, "UART divisor wasn't initialized during instantiation")
+  if(divisorInit==0)  println("For simulation only beacuse UART divisor was fixed to zero!!")
   require(divisorInit >> c.divisorBits == 0, s"UART divisor reg (width $c.divisorBits) not wide enough to hold $divisorInit")
 
   val osduartNodes = BundleBridgeSource(() => (new OSDUARTDEMIO()))
@@ -133,6 +134,10 @@ class UART(busWidthBytes: Int, val c: UARTParams, divisorInit: Int = 0)
     if (c.dataBits == 9) {
       txm.io.data8or9.get := data8or9
       rxm.io.data8or9.get := data8or9
+    }
+
+    if(divisorInit==0) {
+      txm.io.div := 0.U
     }
 
     rxm.io.en := rxen
