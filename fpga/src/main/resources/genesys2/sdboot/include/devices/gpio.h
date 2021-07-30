@@ -20,5 +20,13 @@
 #define GPIO_IOF_EN     (0x38)
 #define GPIO_IOF_SEL    (0x3C)
 #define GPIO_OUTPUT_XOR    (0x40)
+#define GPIO_PATH_HIE      (0x44)
+#define GPIO_PATH_LIE      (0x48)
+#define GPIO_PS            (0x4C)
+#define GPIO_POE           (0x50)
+#define GPIO_IOD_SW        (0x54)
+#define GPIO_IOD_BUT       (0x58)
+#define GPIO_IOD_LED       (0x5C)
+#define GPIO_IOD_OLED      (0x60)
 
 #endif /* _SIFIVE_GPIO_H */

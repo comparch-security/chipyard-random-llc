@@ -18,3 +18,17 @@ abstract class GPIOXilinxPlacedOverlay(name: String, di: GPIODesignInput, si: GP
       } }
   } }
 }
+
+
+abstract class DIOXilinxPlacedOverlay(name: String, di: DIODesignInput, si: DIOShellInput)
+  extends DIOPlacedOverlay(name, di, si)
+{
+  def shell: XilinxShell
+
+  shell { InModuleBody {
+    tldioSink.bundle.sw  := io.sw.get
+    tldioSink.bundle.but := io.but.get
+    io.led.get    := tldioSink.bundle.led
+    io.oled.get   := tldioSink.bundle.oled
+  } }
+}

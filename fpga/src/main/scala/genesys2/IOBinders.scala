@@ -8,6 +8,7 @@ import freechips.rocketchip.subsystem.{BaseSubsystem}
 import freechips.rocketchip.util.{HeterogeneousBag}
 import freechips.rocketchip.tilelink.{TLBundle}
 
+import sifive.blocks.devices.gpio.{HasPeripheryGPIOModuleImp}
 import sifive.blocks.devices.uart.{HasPeripheryUARTModuleImp}
 import sifive.blocks.devices.spi.{HasPeripherySPI, HasPeripherySPIModuleImp, MMCDevice}
 
@@ -40,6 +41,16 @@ class WithSPIIOPassthrough  extends OverrideLazyIOBinder({
         (io_spi_pins_temp, Nil)
       } }
     }
+  }
+})
+
+class WithDIOPassthrough extends OverrideIOBinder({
+  (system: HasPeripheryGPIOModuleImp) => {
+    val io_dio_pins_temp = system.iod.zipWithIndex.map { case (dio, i) => IO(dio.get.cloneType).suggestName(s"dio_$i") }
+    (io_dio_pins_temp zip system.iod).map { case (io, sysio) =>
+      io <> sysio.get
+    }
+    (io_dio_pins_temp, Nil)
   }
 })
 

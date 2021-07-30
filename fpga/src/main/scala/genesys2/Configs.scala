@@ -11,6 +11,7 @@ import freechips.rocketchip.tile.{XLen}
 
 import sifive.blocks.devices.spi.{PeripherySPIKey, SPIParams}
 import sifive.blocks.devices.uart.{PeripheryUARTKey, UARTParams}
+import sifive.blocks.devices.gpio.{PeripheryGPIOKey, GPIOParams}
 
 import sifive.fpgashells.shell.{DesignKey}
 import sifive.fpgashells.shell.xilinx.{GENESYS2ShellPMOD, GENESYS2DDRSize}
@@ -22,6 +23,7 @@ import chipyard.{BuildSystem, ExtTLMem}
 class WithDefaultPeripherals extends Config((site, here, up) => {
   case PeripheryUARTKey => List(UARTParams(address = BigInt(0x64000000L), isosddem=true))
   case PeripherySPIKey => List(SPIParams(rAddress = BigInt(0x64001000L)))
+  case PeripheryGPIOKey => List(GPIOParams(address = BigInt(0x64002000L)))
   case GENESYS2ShellPMOD => "SDIO"
 })
 
@@ -44,9 +46,11 @@ class WithSystemModifications extends Config((site, here, up) => {
 
 // DOC include start: AbstractGENESYS2 and Rocket
 class WithGENESYS2Tweaks extends Config(
+  new WithDIO ++
   new WithUART ++
   new WithSPISDCard ++
   new WithDDRMem ++
+  new WithDIOPassthrough ++
   new WithUARTIOPassthrough ++
   new WithSPIIOPassthrough ++
   new WithTLIOPassthrough ++

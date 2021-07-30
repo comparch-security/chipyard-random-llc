@@ -33,3 +33,30 @@ abstract class GPIOPlacedOverlay(
   val tlgpioSink = sinkScope { di.node.makeSink }
   def overlayOutput = GPIOOverlayOutput()
 }
+
+
+//Directly IO
+case class DIOShellInput()
+case class DIODesignInput(dioParams: DIOParams, node: BundleBridgeSource[IODPortIO])(implicit val p: Parameters)
+case class DIOOverlayOutput()
+case object DIOOverlayKey extends Field[Seq[DesignPlacer[DIODesignInput, DIOShellInput, DIOOverlayOutput]]](Nil)
+trait DIOShellPlacer[Shell] extends ShellPlacer[DIODesignInput, DIOShellInput, DIOOverlayOutput]
+
+class ShellDIOPortIO(val c: DIOParams) extends Bundle {
+  val sw   = if(c.include) Some(Input(UInt(c.sw.W)))    else None  //switch
+  val but  = if(c.include) Some(Input(UInt(c.but.W)))   else None  //button
+  val led  = if(c.include) Some(Output(UInt(c.led.W)))  else None
+  val oled = if(c.include) Some(Output(UInt(c.oled.W))) else None
+}
+
+abstract class DIOPlacedOverlay(
+  val name: String, val di: DIODesignInput, si: DIOShellInput)
+    extends IOPlacedOverlay[ShellDIOPortIO, DIODesignInput, DIOShellInput, DIOOverlayOutput]
+{
+  implicit val p = di.p
+
+  def ioFactory = new ShellDIOPortIO(di.dioParams)
+
+  val tldioSink = sinkScope { di.node.makeSink }
+  def overlayOutput = DIOOverlayOutput()
+}

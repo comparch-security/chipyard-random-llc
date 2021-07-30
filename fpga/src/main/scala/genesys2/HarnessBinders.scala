@@ -8,6 +8,7 @@ import freechips.rocketchip.tilelink.{TLBundle}
 
 import sifive.blocks.devices.uart.{HasPeripheryUARTModuleImp, UARTPortIO}
 import sifive.blocks.devices.spi.{HasPeripherySPI, SPIPortIO}
+import sifive.blocks.devices.gpio.{HasPeripheryGPIOModuleImp, IODPortIO}
 
 import chipyard.{HasHarnessSignalReferences, CanHaveMasterTLMemPort}
 import chipyard.harness.{OverrideHarnessBinder}
@@ -26,6 +27,15 @@ class WithSPISDCard extends OverrideHarnessBinder({
   (system: HasPeripherySPI, th: BaseModule with HasHarnessSignalReferences, ports: Seq[SPIPortIO]) => {
     th match { case genesys2th: GENESYS2FPGATestHarnessImp => {
       genesys2th.genesys2Outer.io_spi_bb.bundle <> ports.head
+    } }
+  }
+})
+
+/*** DIO ***/
+class WithDIO extends OverrideHarnessBinder({
+  (system: HasPeripheryGPIOModuleImp, th: BaseModule with HasHarnessSignalReferences, ports: Seq[IODPortIO]) => {
+    th match { case genesys2th: GENESYS2FPGATestHarnessImp => {
+      genesys2th.genesys2Outer.io_dio_bb.bundle <> ports.head
     } }
   }
 })

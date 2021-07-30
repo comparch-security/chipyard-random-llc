@@ -17,11 +17,11 @@ LFLAGS=-static -Wl,-static -nostdlib -L $(BROM_DIR)/linker -T bram.elf.lds
 PBUS_CLK ?= 60000000 # default to 1MHz but really should be overridden
 
 c_source = $(BRAM_DIR)/head.S $(BRAM_DIR)/syscalls.c  
-c_source+= $(DRIVER_DIR)/uart.c $(DRIVER_DIR)/spi.c $(DRIVER_DIR)/diskio.c $(DRIVER_DIR)/ff.c $(DRIVER_DIR)/elf.c $(DRIVER_DIR)/pfc.c
+c_source+= $(DRIVER_DIR)/uart.c $(DRIVER_DIR)/spi.c $(DRIVER_DIR)/diskio.c $(DRIVER_DIR)/ff.c $(DRIVER_DIR)/elf.c $(DRIVER_DIR)/pfc.c $(DRIVER_DIR)/gpio.c
 c_source+= $(BROM_DIR)/kprintf.c 
 
 
-TARGETS = jump dram baresd fat32txt fat32bin fat32elf testpfc
+TARGETS = jump dram baresd fat32txt fat32bin fat32elf testpfc testled
 
 RISCV_FILES =  $(addsuffix .riscv, $(TARGETS))
 DUMP_FILES  =  $(addsuffix .dump,  $(TARGETS))

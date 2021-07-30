@@ -23,4 +23,8 @@ object GPIOCtrlRegs {
   val passthru_low_ie  = 0x48
   val ps          = 0x4c
   val poe         = 0x50
+  val sw          = 0x54
+  val but         = 0x58
+  val led         = 0x5c
+  val oled        = 0x60
 }

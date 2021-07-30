@@ -32,6 +32,7 @@ class GENESYS2FPGATestHarness(override implicit val p: Parameters) extends GENES
 
   // Order matters; ddr depends on sys_clock
   val uart      = Overlay(UARTOverlayKey, new UARTGENESYS2ShellPlacer(this, UARTShellInput()))
+  val dio       = Overlay(DIOOverlayKey, new DIOGENESYS2ShellPlacer(this, DIOShellInput()))
   val sdio      = if (pmod_is_sdio) Some(Overlay(SPIOverlayKey, new SDIOGENESYS2ShellPlacer(this, SPIShellInput()))) else None
   //val jtag      = Overlay(JTAGDebugOverlayKey, new JTAGDebugGENESYS2ShellPlacer(this, JTAGDebugShellInput(location = jtag_location)))
   //val cjtag     = Overlay(cJTAGDebugOverlayKey, new cJTAGDebugGENESYS2ShellPlacer(this, cJTAGDebugShellInput()))
@@ -72,6 +73,10 @@ class GENESYS2FPGATestHarness(override implicit val p: Parameters) extends GENES
 
   val io_spi_bb = BundleBridgeSource(() => (new SPIPortIO(dp(PeripherySPIKey).head)))
   dp(SPIOverlayKey).head.place(SPIDesignInput(dp(PeripherySPIKey).head, io_spi_bb))
+
+  /*** DIO ***/
+  val io_dio_bb = BundleBridgeSource(() => (new IODPortIO(dp(PeripheryGPIOKey).head.dio)))
+  dp(DIOOverlayKey).head.place(DIODesignInput(dp(PeripheryGPIOKey).head.dio, io_dio_bb))
 
   /*** DDR ***/
   val ddrplaced = dp(DDROverlayKey).head.place(DDRDesignInput(dp(ExtTLMem).get.master.base, dutWrangler.node, harnessSysPLL))

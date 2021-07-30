@@ -122,6 +122,50 @@ class UARTGENESYS2ShellPlacer(shell: GENESYS2ShellBasicOverlays, val shellInput:
   def place(designInput: UARTDesignInput) = new UARTGENESYS2PlacedOverlay(shell, valName.name, designInput, shellInput)
 }
 
+class DIOGENESYS2PlacedOverlay(val shell: GENESYS2ShellBasicOverlays, name: String, val designInput: DIODesignInput, val shellInput: DIOShellInput)
+  extends DIOXilinxPlacedOverlay(name, designInput, shellInput)
+{
+  shell { InModuleBody {
+    val packagePinsWithPackageIOs = Seq(("G19",  IOPin(io.sw.get, 0),    "LVCMOS12"),
+                                        ("G25",  IOPin(io.sw.get, 1),    "LVCMOS12"),
+                                        ("H24",  IOPin(io.sw.get, 2),    "LVCMOS12"),
+                                        ("K19",  IOPin(io.sw.get, 3),    "LVCMOS12"),
+                                        ("N19",  IOPin(io.sw.get, 4),    "LVCMOS12"),
+                                        ("P19",  IOPin(io.sw.get, 5),    "LVCMOS12"),
+                                        ("P26",  IOPin(io.sw.get, 6),    "LVCMOS33"),
+                                        ("P27",  IOPin(io.sw.get, 7),    "LVCMOS33"),
+                                        ("E18",  IOPin(io.but.get, 0),   "LVCMOS12"), //btnc
+                                        ("M19",  IOPin(io.but.get, 1),   "LVCMOS12"), //btnd
+                                        ("M20",  IOPin(io.but.get, 2),   "LVCMOS12"), //btnl
+                                        ("C19",  IOPin(io.but.get, 3),   "LVCMOS12"), //btnr
+                                        ("B19",  IOPin(io.but.get, 4),   "LVCMOS12"), //btnu
+                                        ("T28",  IOPin(io.led.get, 0),   "LVCMOS33"),
+                                        ("V19",  IOPin(io.led.get, 1),   "LVCMOS33"),
+                                        ("U30",  IOPin(io.led.get, 2),   "LVCMOS33"),
+                                        ("U29",  IOPin(io.led.get, 3),   "LVCMOS33"),
+                                        ("V20",  IOPin(io.led.get, 4),   "LVCMOS33"),
+                                        ("V26",  IOPin(io.led.get, 5),   "LVCMOS33"),
+                                        ("W24",  IOPin(io.led.get, 6),   "LVCMOS33"),
+                                        ("W23" , IOPin(io.led.get, 7),   "LVCMOS33"),
+                                        ("AC17", IOPin(io.oled.get, 0),  "LVCMOS18"), //oled_dc
+                                        ("AB17", IOPin(io.oled.get, 1),  "LVCMOS18"), //oled_res
+                                        ("AF17", IOPin(io.oled.get, 2),  "LVCMOS18"), //oled_sclk
+                                        ("Y15",  IOPin(io.oled.get, 3),  "LVCMOS18"), //oled_sdin
+                                        ("AB22", IOPin(io.oled.get, 4),  "LVCMOS33"), //oled_vbat
+                                        ("AG17", IOPin(io.oled.get, 5),  "LVCMOS18")) //oled_vdd
+
+    packagePinsWithPackageIOs foreach { case (pin, io, lv) => {
+      shell.xdc.addPackagePin(io, pin)
+      shell.xdc.addIOStandard(io, lv)
+      shell.xdc.addIOB(io)
+    } }
+  } }
+}
+class DIOGENESYS2ShellPlacer(shell: GENESYS2ShellBasicOverlays, val shellInput: DIOShellInput)(implicit val valName: ValName)
+  extends DIOShellPlacer[GENESYS2ShellBasicOverlays] {
+  def place(designInput: DIODesignInput) = new DIOGENESYS2PlacedOverlay(shell, valName.name, designInput, shellInput)
+}
+
 object LEDGENESYS2PinConstraints {
   val pins = Seq("T28", "V19", "U30", "U29", "V20", "V26", "W24", "W23") //LED0 - LED7
 }

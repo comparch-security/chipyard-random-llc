@@ -37,13 +37,28 @@ class IOFPortIO(val w: Int) extends Bundle {
   val iof_1 = Vec(w, new IOFPin).flip
 }
 
+class IODPortIO(val c: DIOParams) extends Bundle {  //directly IO
+  val sw   = UInt(c.sw.W).asInput    //switch
+  val but  = UInt(c.but.W).asInput    //button
+  val led  = UInt(c.led.W).asOutput
+  val oled = UInt(c.oled.W).asOutput
+}
+
+case class DIOParams(
+  include: Boolean = true,
+  sw:      Int = 8,
+  but:     Int = 5,
+  led:     Int = 8,
+  oled:    Int = 6)
+
 case class GPIOParams(
   address: BigInt,
-  width: Int,
+  width: Int = 1,
   includeIOF: Boolean = false,
   dsWidth: Int = 1,
   hasPS: Boolean = false,
-  hasPOE: Boolean = false) extends DeviceParams
+  hasPOE: Boolean = false,
+  dio: DIOParams = new DIOParams) extends DeviceParams
 
 /** The base GPIO peripheral functionality, which uses the regmap API to
   * abstract over the bus protocol to which it is being connected
@@ -59,6 +74,9 @@ abstract class GPIO(busWidthBytes: Int, c: GPIOParams)(implicit p: Parameters)
     with HasInterruptSources {
   val iofNode = c.includeIOF.option(BundleBridgeSource(() => new IOFPortIO(c.width)))
   val iofPort = iofNode.map { node => InModuleBody { node.bundle } }
+
+  val iodNode = c.dio.include.option(BundleBridgeSource(() => new IODPortIO(c.dio)))
+  val iodPort = iodNode.map { node => InModuleBody { node.bundle } }
 
   def nInterrupts = c.width
   override def extraResources(resources: ResourceBindings) = Map(
@@ -88,6 +106,10 @@ abstract class GPIO(busWidthBytes: Int, c: GPIOParams)(implicit p: Parameters)
   inVal := Vec(port.pins.map(_.i.ival)).asUInt
   val inSyncReg  = SynchronizerShiftReg(inVal, 3, Some("inSyncReg"))
   val valueReg   = Reg(init = UInt(0, c.width), next = inSyncReg)
+  val swReg      = Reg(UInt(0, if(c.dio.include) c.dio.sw   else 1))
+  val butReg     = Reg(UInt(0, if(c.dio.include) c.dio.but  else 1))
+  val ledReg     = Reg(UInt(0, if(c.dio.include) c.dio.led  else 1))
+  val oledReg    = Reg(UInt(0, if(c.dio.include) c.dio.oled else 1))
 
   // Interrupt Configuration
   val highIeReg = Reg(init = UInt(0, c.width))
@@ -134,6 +156,21 @@ abstract class GPIO(busWidthBytes: Int, c: GPIOParams)(implicit p: Parameters)
                    yield (GPIOCtrlRegs.drive + 4*i -> Seq(RegField(c.width, dsReg(i),
                           RegFieldDesc(s"ds$i",s"Pin drive strength $i selection", reset=Some(0)))))
 
+  //  directly IO
+  val iobSw     =   if (c.dio.include) (Seq(RegField.r(swReg.getWidth,    swReg,
+                        (RegFieldDesc("switch_value","Switch value",  volatile=true)))))
+                     else (Seq(RegField(1)))
+  val iobBut    =   if (c.dio.include) (Seq(RegField.r(butReg.getWidth,   butReg,
+                        (RegFieldDesc("button_value","Button value",  volatile=true)))))
+                     else (Seq(RegField(1)))
+  val iobLed    =   if (c.dio.include) (Seq(RegField.w(ledReg.getWidth,   ledReg,
+                        (RegFieldDesc("led_value",   "Led value",     volatile=true)))))
+                    else (Seq(RegField(1)))
+  val iobOled   =   if (c.dio.include) (Seq(RegField.w(oledReg.getWidth,  oledReg,
+                        (RegFieldDesc("oled_value",  "Oled value",    volatile=true)))))
+                    else (Seq(RegField(1)))
+
+
   // shift other register offset when c.dsWidth > 1
   val dsOffset = (c.dsWidth - 1) * 4
 
@@ -174,7 +211,11 @@ abstract class GPIO(busWidthBytes: Int, c: GPIOParams)(implicit p: Parameters)
     GPIOCtrlRegs.passthru_low_ie  + dsOffset -> Seq(RegField(c.width, passthruLowIeReg,
                                          RegFieldDesc("passthru_low_ie", "Pass-through active-low interrupt enable", reset=Some(0)))),
     GPIOCtrlRegs.ps  + dsOffset -> psFields,
-    GPIOCtrlRegs.poe + dsOffset -> poeFields
+    GPIOCtrlRegs.poe + dsOffset -> poeFields,
+    GPIOCtrlRegs.sw             -> iobSw,
+    GPIOCtrlRegs.but            -> iobBut,
+    GPIOCtrlRegs.led            -> iobLed,
+    GPIOCtrlRegs.oled           -> iobOled
   )
   regmap(mapping ++ dsRegMap :_*)
   val omRegMap = OMRegister.convert(mapping:_*)
@@ -229,6 +270,15 @@ abstract class GPIO(busWidthBytes: Int, c: GPIOParams)(implicit p: Parameters)
       pre_xor  := Mux(iofEnReg.io.q(pin), iofPlusSwPinCtrl(pin), swPinCtrl(pin))
     } else {
       pre_xor := swPinCtrl(pin)
+    }
+
+    if (c.dio.include) {
+      swReg     := iodPort.get.sw
+      butReg    := iodPort.get.but
+      iodPort.get.led  := ledReg
+      iodPort.get.oled := oledReg
+    } else {
+
     }
 
     port.pins(pin).o      := pre_xor
