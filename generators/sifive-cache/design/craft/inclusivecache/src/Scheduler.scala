@@ -35,10 +35,15 @@ class Scheduler(params: InclusiveCacheParameters) extends Module
     // Control port
     val req = Decoupled(new SinkXRequest(params)).flip
     val resp = Decoupled(new SourceXRequest(params))
+    //config
+    val config = new Bundle {
+      val remaper         = new RemaperConfig().asInput
+      val attackdetector  = new AttackDetectorConfig().asInput
+    }
     //pfc
     val pfcupdate = new Bundle{
       val g0      = Flipped(new P0L2PFCReg())
-      val g1      = Flipped(new P1L2PFCReg())
+      val remaper = Flipped(new RemaperPFCReg())
       val itlink  = Flipped(new TileLinkPFCReg())
       val otlink  = Flipped(new TileLinkPFCReg())
       val setmiss = Flipped(new SetEventPFCRam(params.cache.sets))
@@ -66,14 +71,14 @@ class Scheduler(params: InclusiveCacheParameters) extends Module
   val sinkE = Module(new SinkE(params))
   val sinkX = Module(new SinkX(params))
 
-  sinkA.io.a <> io.in.a
-  sinkC.io.c <> io.in.c
   sinkE.io.e <> io.in.e
   sinkD.io.d <> io.out.d
-  sinkX.io.x <> io.req
 
   io.out.b.ready := Bool(true) // disconnected
 
+  val remaper   = Module(new Remaper(params))
+  val randomtable   = Module(new RandomTable(params))
+  val attackdetector  = Module(new AttackDetector(params))
   val directory = Module(new Directory(params))
   val bankedStore = Module(new BankedStore(params))
   val requests = Module(new ListBuffer(ListBufferParameters(new QueuedRequest(params), 3*params.mshrs, params.secondary, false)))
@@ -146,7 +151,6 @@ class Scheduler(params: InclusiveCacheParameters) extends Module
   sourceC.io.req := schedule.c
   sourceD.io.req := schedule.d
   sourceE.io.req := schedule.e
-  sourceX.io.req := schedule.x
   directory.io.write := schedule.dir
 
   // Forward meta-data changes from nested transaction completion
@@ -316,8 +320,14 @@ class Scheduler(params: InclusiveCacheParameters) extends Module
       bc_mshr.io.status.bits.way,
       Mux1H(abc_mshrs.map(m => m.io.status.valid && m.io.status.bits.set === sinkC.io.set),
             abc_mshrs.map(_.io.status.bits.way)))
+  sinkC.io.swz :=
+    Mux(bc_mshr.io.status.valid && bc_mshr.io.status.bits.set === sinkC.io.set,
+      bc_mshr.io.status.bits.swz,
+      Mux1H(abc_mshrs.map(m => m.io.status.valid && m.io.status.bits.set === sinkC.io.set),
+            abc_mshrs.map(_.io.status.bits.swz)))
   sinkD.io.way := Vec(mshrs.map(_.io.status.bits.way))(sinkD.io.source)
   sinkD.io.set := Vec(mshrs.map(_.io.status.bits.set))(sinkD.io.source)
+  sinkD.io.swz := Vec(mshrs.map(_.io.status.bits.swz))(sinkD.io.source)
 
   // Beat buffer connections between components
   sinkA.io.pb_pop <> sourceD.io.pb_pop
@@ -342,6 +352,114 @@ class Scheduler(params: InclusiveCacheParameters) extends Module
   sourceD.io.grant_req := sinkD  .io.grant_req
   sourceC.io.evict_safe := sourceD.io.evict_safe
   sinkD  .io.grant_safe := sourceD.io.grant_safe
+
+  if(params.remap.en) {
+    val fsinkA                = Module(new FSink(io.in.a.bits.cloneType, params))
+    val fsinkC                = Module(new FSink(io.in.c.bits.cloneType, params))
+    val fsinkX                = Module(new FSinkX(params))
+    val fsourceX              = Module(new FSourceX(params))
+    val dir_arb               = Module(new Arbiter(new DirectoryRead(params),  2))
+    val idle                  = Wire(new RemaperSafeIO())
+    val stall_fsinkA_dir      = Cat(mshrs.map { m => m.io.status.valid && m.io.status.bits.set === fsinkA.io.dir_read.bits.set }.reverse).orR() || !requests.io.empty || !sinkA.io.idle
+
+    //req from inner
+    fsinkA.io.front    <> io.in.a      ;     sinkA.io.a      <> fsinkA.io.back    //io.in.a    -->   fsinkA    --> sinkA
+    fsinkC.io.front    <> io.in.c      ;     sinkC.io.c      <> fsinkC.io.back    //io.in.c    -->   fsinkC    --> sinkC
+    fsinkX.io.front    <> io.req       ;     sinkX.io.x      <> fsinkX.io.back    //io.req     -->   fsinkX    --> sinkX
+
+    //resp to inner
+    fsourceX.io.front  := schedule.x   ;     sourceX.io.req  <> fsourceX.io.back  //schedule.x -->  fsourceX   --> sourceX
+
+    //remaper status
+    fsinkA.io.rstatus   := remaper.io.status
+    fsinkC.io.rstatus   := remaper.io.status
+    fsinkX.io.rstatus   := remaper.io.status
+    mshrs.map { _.io.rstatus := remaper.io.status }
+
+    //randomtable
+    val mix_c = Reg(io.in.c.bits.data.cloneType)
+    val mix_d = Reg(io.in.d.bits.data.cloneType)
+    mix_c := Mux(io.in.c.valid, mix_c ^ io.in.c.bits.data, Cat(mix_c(0), mix_c(63, 1)))
+    mix_d := Mux(io.in.d.valid, mix_d ^ io.in.d.bits.data, Cat(mix_d(0), mix_d(63, 1)))
+    remaper.io.rtreadys   := randomtable.io.readys
+    randomtable.io.cmd    := remaper.io.rtcmd
+    randomtable.io.mix    := Cat(mix_c, mix_d)
+    randomtable.io.req(0) <> remaper.io.rtreq      ; remaper.io.rtresp     := randomtable.io.resp(0) ;
+    randomtable.io.req(1) <> fsinkX.io.rtab.req    ; fsinkX.io.rtab.resp   := randomtable.io.resp(1) ; sinkX.io.diradr <> fsinkX.io.diradr  //fsinkX  -->  randomtable  --> sinkX
+    randomtable.io.req(2) <> fsinkC.io.rtab.req    ; fsinkC.io.rtab.resp   := randomtable.io.resp(2) ; sinkC.io.diradr <> fsinkC.io.diradr  //fsinkC  -->  randomtable  --> sinkC
+    randomtable.io.req(3) <> fsinkA.io.rtab.req    ; fsinkA.io.rtab.resp   := randomtable.io.resp(3) ; sinkA.io.diradr <> fsinkA.io.diradr  //fsinkA  -->  randomtable  --> sinkA
+
+    //fsink get true hset from SourceB
+    //Seq(fsinkC, fsinkA).map( fsink => {
+    Seq(fsinkC).map( fsink => {
+      val (req_valid, req_addr) = (fsink.io.b_read.valid, fsink.io.b_read.bits.tag)
+      fsink.io.b_result.valid     := RegNext(Cat(mshrs.map { m => m.io.status.bits.b.valid && req_valid && m.io.status.bits.b.bits.tag === req_addr }.reverse).orR())
+      fsink.io.b_result.bits.set  := {
+        val b_set   = Reg(UInt(width = params.setBits))
+        mshrs.map { case m => {
+          when(m.io.status.bits.b.valid && req_addr === fsink.io.b_read.bits.tag) { b_set := m.io.status.bits.b.bits.set }
+        }}
+      b_set
+      }
+    })
+    //fsink read directory to get true hset
+    dir_arb.io.out.ready := !(mshr_uses_directory || alloc_uses_directory)
+    when(!(mshr_uses_directory || alloc_uses_directory)) {
+      directory.io.read.valid   := dir_arb.io.out.valid
+      directory.io.read.bits    := dir_arb.io.out.bits
+    }
+    dir_arb.io.in(0)           <> fsinkC.io.dir_read
+    dir_arb.io.in(1).valid     := !stall_fsinkA_dir & fsinkA.io.dir_read.valid
+    dir_arb.io.in(1).bits      := fsinkA.io.dir_read.bits
+    fsinkA.io.dir_read.ready   := !stall_fsinkA_dir & dir_arb.io.in(1).ready
+    fsinkC.io.dir_result.valid := params.dirReg(RegNext(fsinkC.io.dir_read.fire())) //  val directoryFanout = params.dirReg(RegNext(Mux(mshr_uses_directory, mshr_selectOH, Mux(alloc_uses_directory, dirTarget, UInt(0)))))
+    fsinkA.io.dir_result.valid := params.dirReg(RegNext(fsinkA.io.dir_read.fire())) //  val directoryFanout = params.dirReg(RegNext(Mux(mshr_uses_directory, mshr_selectOH, Mux(alloc_uses_directory, dirTarget, UInt(0)))))
+    fsinkC.io.dir_result.bits  := directory.io.result.bits
+    fsinkA.io.dir_result.bits  := directory.io.result.bits
+
+    //remap cache
+    //evict
+    fsinkX.io.rx        <> remaper.io.evreq     ; remaper.io.evresp   <> fsourceX.io.rx       //remaper  ---> fsinkX    --> .... --> fsourceX --> remaper
+    //swap directoryentry
+    directory.io.rreq   <>  remaper.io.dereq    ; remaper.io.deresp  :=  directory.io.rresp   //remaper  ---> directory --> remaper
+    //swap datablock
+    bankedStore.io.rreq <>  remaper.io.dbreq                                                  //remaper  ---> bankedStore
+
+    //remaper safe
+    idle.mshr                := !request.valid     && requests.io.empty && Cat(mshrs.map { !_.io.status.valid }.reverse).andR()
+    idle.sinkA               := !io.in.a.valid     && fsinkA.io.idle   && sinkA.io.idle
+    idle.sinkC               := !io.in.c.valid     && fsinkC.io.idle   && sinkC.io.idle
+    idle.sinkX               := !io.req.valid      && fsinkX.io.idle   && sinkX.io.idle
+    idle.sourceD             := !schedule.d.valid  && sourceD.io.idle
+    remaper.io.safe.mshr     := RegNext(idle.mshr)
+    remaper.io.safe.sinkA    := RegNext(idle.mshr & idle.sinkA)
+    remaper.io.safe.sinkC    := RegNext(idle.mshr & idle.sinkC)
+    remaper.io.safe.sinkX    := RegNext(idle.mshr & idle.sinkX)
+    remaper.io.safe.sourceD  := RegNext(idle.mshr & idle.sourceD)
+    remaper.io.safe.all      := RegNext(idle.mshr & idle.sinkA & idle.sinkC & idle.sinkX & idle.sourceD)
+
+    //remaper config
+    remaper.io.config := io.config.remaper
+
+    //attack detector
+    remaper.io.req   <> attackdetector.io.remap
+    attackdetector.io.config      := io.config.attackdetector
+    attackdetector.io.evict.valid := io.in.a.fire()
+
+    //ASSERT
+    assert(!(directory.io.write.fire() && directory.io.write.bits.data.state  =/= MetaData.INVALID && remaper.io.status.oneloc && directory.io.write.bits.data.loc  =/= remaper.io.status.cloc))
+    assert(!(directory.io.result.valid && directory.io.result.bits.state      =/= MetaData.INVALID && remaper.io.status.oneloc && directory.io.result.bits.loc      =/= remaper.io.status.cloc))
+    mshrs map { mshr => {
+      val timers  = RegInit(UInt(0, width = 8))
+      timers := Mux(mshr.io.status.valid, timers+1.U, 0.U)
+      assert(timers < 200.U) //deadlock?
+    }}
+  } else {
+    sinkA.io.a <> io.in.a
+    sinkC.io.c <> io.in.c
+    sinkX.io.x <> io.req
+    sourceX.io.req := schedule.x
+  }
 
   connectPFC(params)
 

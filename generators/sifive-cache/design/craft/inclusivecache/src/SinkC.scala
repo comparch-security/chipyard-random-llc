@@ -25,7 +25,7 @@ class SinkCResponse(params: InclusiveCacheParameters) extends InclusiveCacheBund
 {
   val last   = Bool()
   val set    = UInt(width = params.setBits)
-  val tag    = UInt(width = params.tagBits)
+  val tag    = UInt(width = if(params.remap.en) params.blkadrBits else params.tagBits)
   val source = UInt(width = params.inner.bundle.sourceBits)
   val param  = UInt(width = 3)
   val data   = Bool()
@@ -43,15 +43,19 @@ class SinkC(params: InclusiveCacheParameters) extends Module
     val req = Decoupled(new FullRequest(params)) // Release
     val resp = Valid(new SinkCResponse(params)) // ProbeAck
     val c = Decoupled(new TLBundleC(params.inner.bundle)).flip
-    // Find 'way' via MSHR CAM lookup
+    // Find 'way' and 'swz' via MSHR CAM lookup
     val set = UInt(width = params.setBits)
     val way = UInt(width = params.wayBits).flip
+    val swz = Bool().flip //swap zone
     // ProbeAck write-back
     val bs_adr = Decoupled(new BankedStoreInnerAddress(params))
     val bs_dat = new BankedStoreInnerPoison(params)
     // SourceD sideband
     val rel_pop  = Decoupled(new PutBufferPop(params)).flip
     val rel_beat = new PutBufferCEntry(params)
+    //for use by rempaer
+    val idle     = Bool() //can remap safely
+    val diradr   = Decoupled(new DirectoryRead(params)).flip           //must synchronize with a!!
   }
 
   if (params.firstLevel) {
@@ -65,8 +69,11 @@ class SinkC(params: InclusiveCacheParameters) extends Module
   } else {
     // No restrictions on the type of buffer
     val c = params.micro.innerBuf.c(io.c)
+    val diradr = params.micro.innerBuf.c(io.diradr)
+    diradr.ready := c.ready
 
-    val (tag, set, offset) = params.parseAddress(c.bits.address)
+    val (ctag, cset, coffset) = params.parseAddress(c.bits.address)
+    val (tag, set, offset) = if(params.remap.en) (Cat(ctag, cset), diradr.bits.set, coffset) else (ctag, cset, coffset)
     val (first, last, _, beat) = params.inner.count(c)
     val hasData = params.inner.hasData(c.bits)
     val raw_resp = c.bits.opcode === TLMessages.ProbeAck || c.bits.opcode === TLMessages.ProbeAckData
@@ -93,6 +100,7 @@ class SinkC(params: InclusiveCacheParameters) extends Module
     bs_adr.valid     := resp && (!first || (c.valid && hasData))
     bs_adr.bits.noop := !c.valid
     bs_adr.bits.way  := io.way
+    bs_adr.bits.swz  := io.swz
     bs_adr.bits.set  := io.set
     bs_adr.bits.beat := Mux(c.valid, beat, RegEnable(beat + bs_adr.ready.asUInt, c.valid))
     bs_adr.bits.mask := ~UInt(0, width = params.innerMaskBits)
@@ -157,5 +165,7 @@ class SinkC(params: InclusiveCacheParameters) extends Module
     when (io.rel_pop.fire() && io.rel_pop.bits.last) {
       lists_clr := UIntToOH(io.rel_pop.bits.index, params.relLists)
     }
+
+    io.idle  := !c.valid & putbuffer.io.empty
   }
 }

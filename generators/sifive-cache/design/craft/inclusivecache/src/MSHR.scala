@@ -38,19 +38,21 @@ class ScheduleRequest(params: InclusiveCacheParameters) extends InclusiveCacheBu
 
 class MSHRStatus(params: InclusiveCacheParameters) extends InclusiveCacheBundle(params)
 {
+  val swz = Bool()
   val set = UInt(width = params.setBits)
-  val tag = UInt(width = params.tagBits)
+  val tag = UInt(width = if(params.remap.en) params.blkadrBits else params.tagBits)
   val way = UInt(width = params.wayBits)
   val blockB = Bool()
   val nestB  = Bool()
   val blockC = Bool()
   val nestC  = Bool()
+  val b      = Valid(new SourceBRequest(params))
 }
 
 class NestedWriteback(params: InclusiveCacheParameters) extends InclusiveCacheBundle(params)
 {
   val set = UInt(width = params.setBits)
-  val tag = UInt(width = params.tagBits)
+  val tag = UInt(width = if(params.remap.en) params.blkadrBits else params.tagBits)
   val b_toN       = Bool() // nested Probes may unhit us
   val b_toB       = Bool() // nested Probes may demote us
   val b_clr_dirty = Bool() // nested Probes clear dirty
@@ -89,6 +91,7 @@ class MSHR(params: InclusiveCacheParameters) extends Module
     val sinkd     = Valid(new SinkDResponse(params)).flip
     val sinke     = Valid(new SinkEResponse(params)).flip
     val nestedwb  = new NestedWriteback(params).flip
+    val rstatus  = new RemaperStatusIO(params.setBits).asInput  //Remaper Status
   }
 
   val request_valid = RegInit(Bool(false))
@@ -134,6 +137,7 @@ class MSHR(params: InclusiveCacheParameters) extends Module
   val s_execute        = RegInit(Bool(true)) // D  w_pprobeack, w_grant
   val w_grantack       = RegInit(Bool(true))
   val s_writeback      = RegInit(Bool(true)) // W  w_*
+  val no_wait          = w_rprobeacklast && w_releaseack && w_grantlast && w_pprobeacklast && w_grantack
 
   // [1]: We cannot issue outer Acquire while holding blockB (=> outA can stall)
   // However, inB and outC are higher priority than outB, so s_release and s_pprobe
@@ -150,7 +154,7 @@ class MSHR(params: InclusiveCacheParameters) extends Module
 
   // When a nested transaction completes, update our meta data
   when (meta_valid && meta.state =/= INVALID &&
-        io.nestedwb.set === request.set && io.nestedwb.tag === meta.tag) {
+        (params.remap.en.B | io.nestedwb.set === request.set) && io.nestedwb.tag === meta.tag) {
     when (io.nestedwb.b_clr_dirty) { meta.dirty := Bool(false) }
     when (io.nestedwb.c_set_dirty) { meta.dirty := Bool(true) }
     when (io.nestedwb.b_toB) { meta.state := BRANCH }
@@ -162,6 +166,7 @@ class MSHR(params: InclusiveCacheParameters) extends Module
   io.status.bits.set    := request.set
   io.status.bits.tag    := request.tag
   io.status.bits.way    := meta.way
+  io.status.bits.swz    := meta.swz
   io.status.bits.blockB := !meta_valid || ((!w_releaseack || !w_rprobeacklast || !w_pprobeacklast) && !w_grantfirst)
   io.status.bits.nestB  := meta_valid && w_releaseack && w_rprobeacklast && w_pprobeacklast && !w_grantfirst
   // The above rules ensure we will block and not nest an outer probe while still doing our
@@ -171,13 +176,14 @@ class MSHR(params: InclusiveCacheParameters) extends Module
   // The w_grantfirst in nestC is necessary to deal with:
   //   acquire waiting for grant, inner release gets queued, outer probe -> inner probe -> deadlock
   // ... this is possible because the release+probe can be for same set, but different tag
+  io.status.bits.b      := RegEnable(io.schedule.bits.b, io.schedule.bits.b.valid || no_wait)
+  //SinkC can get hset from SourceB status
 
   // We can only demand: block, nest, or queue
   assert (!io.status.bits.nestB || !io.status.bits.blockB)
   assert (!io.status.bits.nestC || !io.status.bits.blockC)
 
   // Scheduler requests
-  val no_wait = w_rprobeacklast && w_releaseack && w_grantlast && w_pprobeacklast && w_grantack
   io.schedule.bits.a.valid := !s_acquire && s_release && s_pprobe
   io.schedule.bits.b.valid := !s_rprobe || !s_pprobe
   io.schedule.bits.c.valid := (!s_release && w_rprobeackfirst) || (!s_probeack && w_pprobeackfirst)
@@ -217,6 +223,7 @@ class MSHR(params: InclusiveCacheParameters) extends Module
   val meta_no_clients = !meta.clients.orR
   val req_promoteT = req_acquire && Mux(meta.hit, meta_no_clients && meta.state === TIP, gotT)
 
+  final_meta_writeback.loc := Mux(io.rstatus.oneloc, io.rstatus.cloc, meta.loc)
   when (request.prio(2) && Bool(!params.firstLevel)) { // always a hit
     final_meta_writeback.dirty   := meta.dirty || request.opcode(0)
     final_meta_writeback.state   := Mux(request.param =/= TtoT && meta.state === TRUNK, TIP, meta.state)
@@ -243,6 +250,7 @@ class MSHR(params: InclusiveCacheParameters) extends Module
                                     Mux(req_acquire, req_clientBit, UInt(0))
     final_meta_writeback.tag := request.tag
     final_meta_writeback.hit := Bool(true)
+    when(!meta.hit & !io.rstatus.oneloc) {  final_meta_writeback.loc := io.rstatus.nloc }
   }
 
   when (bad_grant) {
@@ -287,6 +295,7 @@ class MSHR(params: InclusiveCacheParameters) extends Module
   io.schedule.bits.c.bits.opcode  := Mux(meta.dirty, ReleaseData, Release)
   io.schedule.bits.c.bits.param   := Mux(meta.state === BRANCH, BtoN, TtoN)
   io.schedule.bits.c.bits.source  := UInt(0)
+  io.schedule.bits.c.bits.swz     := meta.swz
   io.schedule.bits.c.bits.tag     := meta.tag
   io.schedule.bits.c.bits.set     := request.set
   io.schedule.bits.c.bits.way     := meta.way
@@ -298,10 +307,13 @@ class MSHR(params: InclusiveCacheParameters) extends Module
                                          BtoT -> Mux(honour_BtoT,  BtoT, NtoT),
                                          NtoT -> NtoT)))
   io.schedule.bits.d.bits.sink    := UInt(0)
+  io.schedule.bits.d.bits.swz     := Bool(false) //meta.swz
   io.schedule.bits.d.bits.way     := meta.way
   io.schedule.bits.d.bits.bad     := bad_grant
   io.schedule.bits.e.bits.sink    := sink
   io.schedule.bits.x.bits.fail    := Bool(false)
+  io.schedule.bits.x.bits.source  := request.source
+  io.schedule.bits.dir.bits.swz   := meta.swz
   io.schedule.bits.dir.bits.set   := request.set
   io.schedule.bits.dir.bits.way   := meta.way
   io.schedule.bits.dir.bits.data  := Mux(!s_release, invalid, Wire(new DirectoryEntry(params), init = final_meta_writeback))
@@ -579,6 +591,7 @@ class MSHR(params: InclusiveCacheParameters) extends Module
       when (isToN(new_request.param) && (new_meta.clients & new_clientBit) =/= UInt(0)) {
         s_writeback := Bool(false)
       }
+      when(!new_meta.hit) { printf("release not hit tag %x set %d\n", request.tag, request.set) }
       assert (new_meta.hit)
     }
     // For X channel requests (ie: flush)
@@ -640,4 +653,5 @@ class MSHR(params: InclusiveCacheParameters) extends Module
       }
     }
   }
+
 }

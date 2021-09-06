@@ -304,3 +304,16 @@ class TileLinkPFCReg extends PFCRegBundle {
   val e_Err1              = Input(UInt(1.W))  //event48
 }
 
+class RemaperPFCReg extends PFCRegBundle {
+  val name = "LLCRemaperEvents"
+  val dummy  = false
+  val page   = 1
+  val couws  = (0 to 36).map(i => 60) //default all counters 60.W
+
+  val finish             = Input(Bool())   //event0
+  val nop                = Input(Bool())   //event0
+  val busy               = Input(Bool())   //event1
+  val swap               = Input(Bool())   //event2
+  val evict              = Input(Bool())   //event3
+  val ebusy              = Input(Bool())   //event4
+}

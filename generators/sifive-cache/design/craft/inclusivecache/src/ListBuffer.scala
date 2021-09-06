@@ -38,10 +38,12 @@ class ListBuffer[T <: Data](params: ListBufferParameters[T]) extends Module
     // push is visible on the same cycle; flow queues
     val push  = Decoupled(new ListBufferPush(params)).flip
     val valid = UInt(width = params.queues)
+    val empty = Bool()
     val pop   = Valid(UInt(width = params.queueBits)).flip
     val data  = params.gen.asOutput
   }
 
+  val empty = RegInit(true.B)
   val valid = RegInit(UInt(0, width=params.queues))
   val head  = Mem(params.queues, UInt(width = params.entryBits))
   val tail  = Mem(params.queues, UInt(width = params.entryBits))
@@ -79,6 +81,7 @@ class ListBuffer[T <: Data](params: ListBufferParameters[T]) extends Module
   // Bypass push data to the peek port
   io.data := (if (!params.bypass) data.read(pop_head) else Mux(!pop_valid, io.push.bits.data, data.read(pop_head)))
   io.valid := (if (!params.bypass) valid else (valid | valid_set))
+  io.empty := empty
 
   // It is an error to pop something that is not valid
   assert (!io.pop.fire() || (io.valid)(io.pop.bits))
@@ -96,4 +99,7 @@ class ListBuffer[T <: Data](params: ListBufferParameters[T]) extends Module
     used  := (used  & ~used_clr)  | used_set
     valid := (valid & ~valid_clr) | valid_set
   }
+
+  when(io.push.fire())                                              { empty := false.B }
+  when(!io.push.fire() & io.pop.fire() & (PopCount(used) === 1.U))  { empty := true.B  }
 }

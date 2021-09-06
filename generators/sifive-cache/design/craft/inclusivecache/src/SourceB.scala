@@ -24,7 +24,7 @@ import freechips.rocketchip.util._
 class SourceBRequest(params: InclusiveCacheParameters) extends InclusiveCacheBundle(params)
 {
   val param   = UInt(width = 3)
-  val tag     = UInt(width = params.tagBits)
+  val tag     = UInt(width = if(params.remap.en) params.blkadrBits else params.tagBits)
   val set     = UInt(width = params.setBits)
   val clients = UInt(width = params.clientBits)
 }
@@ -67,8 +67,10 @@ class SourceB(params: InclusiveCacheParameters) extends Module
     when (b.fire()) { remain_clr := next }
     params.ccover(b.valid && !b.ready, "SOURCEB_STALL", "Backpressured when issuing a probe")
 
-    val tag = Mux(!busy, io.req.bits.tag, RegEnable(io.req.bits.tag, io.req.fire()))
-    val set = Mux(!busy, io.req.bits.set, RegEnable(io.req.bits.set, io.req.fire()))
+    val tag = (if(params.remap.en) Mux(!busy, io.req.bits.tag(params.blkadrBits-1, params.setBits), RegEnable(io.req.bits.tag(params.blkadrBits-1, params.setBits), io.req.fire()))
+               else                Mux(!busy, io.req.bits.tag,                                      RegEnable(io.req.bits.tag,                                      io.req.fire())))
+    val set = (if(params.remap.en) Mux(!busy, io.req.bits.tag(params.setBits-1,                 0), RegEnable(io.req.bits.tag(params.setBits-1,                 0), io.req.fire()))
+               else                Mux(!busy, io.req.bits.set,                                      RegEnable(io.req.bits.set,                                      io.req.fire())))
     val param = Mux(!busy, io.req.bits.param, RegEnable(io.req.bits.param, io.req.fire()))
 
     b.bits.opcode  := TLMessages.Probe

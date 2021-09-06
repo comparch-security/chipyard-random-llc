@@ -19,26 +19,28 @@ package sifive.blocks.inclusivecache
 
 import Chisel._
 import freechips.rocketchip.tilelink._
+import freechips.rocketchip.util._
 
-// The control port response source
-class SourceXRequest(params: InclusiveCacheParameters) extends SinkXRequest(params)
-{
-  val fail = Bool()
+class AttackDetectorConfig extends Bundle {
+  val en              = Bool() //lowest bit
 }
 
-class SourceX(params: InclusiveCacheParameters) extends Module
+class AttackDetector(params: InclusiveCacheParameters) extends Module
 {
   val io = new Bundle {
-    val req = Decoupled(new SourceXRequest(params)).flip
-    val x = Decoupled(new SourceXRequest(params))
+    val config   = new AttackDetectorConfig().asInput
+    val remap    = Decoupled(new RemaperReqIO())
+    val evict    = Valid(new DirectoryRead(params)).flip
   }
 
-  val x = Wire(io.x) // ready must not depend on valid
-  io.x <> Queue(x, 1)
+  val count = RegInit(UInt(1, width = 30))
+  val doremap = count > (2 * params.cache.sets * params.cache.ways).U
+  io.remap.valid := doremap
+  when(!doremap && io.evict.valid && io.remap.ready) { count := count + 1.U }
+  when(io.remap.fire()) { count := 0.U }
 
-  io.req.ready := x.ready
-  x.valid := io.req.valid
-  params.ccover(x.valid && !x.ready, "SOURCEX_STALL", "Backpressure when sending a control message")
+  val config = Reg(new AttackDetectorConfig())
+  when(io.config.en) { config := config }
+  config.en := io.config.en
 
-  x.bits := io.req.bits
 }

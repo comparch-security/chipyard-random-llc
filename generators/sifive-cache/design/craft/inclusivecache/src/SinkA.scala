@@ -42,10 +42,15 @@ class SinkA(params: InclusiveCacheParameters) extends Module
     // for use by SourceD:
     val pb_pop  = Decoupled(new PutBufferPop(params)).flip
     val pb_beat = new PutBufferAEntry(params)
+    //for use by rempaer
+    val idle    = Bool()                                              //can remap safely
+    val diradr  = Decoupled(new DirectoryRead(params)).flip           //must synchronize with a!!
   }
 
   // No restrictions on the type of buffer
   val a = params.micro.innerBuf.a(io.a)
+  val diradr = params.micro.innerBuf.a(io.diradr)
+  diradr.ready := a.ready
 
   val putbuffer = Module(new ListBuffer(ListBufferParameters(new PutBufferAEntry(params), params.putLists, params.putBeats, false)))
   val lists = RegInit(UInt(0, width = params.putLists))
@@ -79,7 +84,8 @@ class SinkA(params: InclusiveCacheParameters) extends Module
   putbuffer.io.push.valid := a.valid && hasData && !req_block && !set_block
   when (a.valid && first && hasData && !req_block && !buf_block) { lists_set := freeOH }
 
-  val (tag, set, offset) = params.parseAddress(a.bits.address)
+  val (atag, aset, aoffset) = params.parseAddress(a.bits.address)
+  val (tag, set, offset) = if(params.remap.en) (Cat(atag, aset), diradr.bits.set, aoffset) else (atag, aset, aoffset)
   val put = Mux(first, freeIdx, RegEnable(freeIdx, first))
 
   io.req.bits.prio   := Vec(UInt(1, width=3).asBools)
@@ -107,4 +113,6 @@ class SinkA(params: InclusiveCacheParameters) extends Module
   when (io.pb_pop.fire() && io.pb_pop.bits.last) {
     lists_clr := UIntToOH(io.pb_pop.bits.index, params.putLists)
   }
+
+  io.idle := !a.valid & putbuffer.io.empty
 }

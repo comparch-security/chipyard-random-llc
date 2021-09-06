@@ -22,7 +22,7 @@ import freechips.rocketchip.tilelink._
 
 class SourceARequest(params: InclusiveCacheParameters) extends InclusiveCacheBundle(params)
 {
-  val tag    = UInt(width = params.tagBits)
+  val tag    = UInt(width = if(params.remap.en) params.blkadrBits else params.tagBits)
   val set    = UInt(width = params.setBits)
   val param  = UInt(width = 3)
   val source = UInt(width = params.outer.bundle.sourceBits)
@@ -50,7 +50,10 @@ class SourceA(params: InclusiveCacheParameters) extends Module
   a.bits.param   := io.req.bits.param
   a.bits.size    := UInt(params.offsetBits)
   a.bits.source  := io.req.bits.source
-  a.bits.address := params.expandAddress(io.req.bits.tag, io.req.bits.set, UInt(0))
+  a.bits.address := (if(params.remap.en) params.expandAddress(io.req.bits.tag(params.blkadrBits-1, params.setBits), io.req.bits.tag(params.setBits-1, 0), UInt(0))
+                     else                params.expandAddress(io.req.bits.tag,                                      io.req.bits.set,                      UInt(0)))
+
+
   a.bits.mask    := ~UInt(0, width = params.outer.manager.beatBytes)
   a.bits.data    := UInt(0)
 }

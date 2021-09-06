@@ -125,6 +125,37 @@ case class InclusiveCacheMicroParameters(
   require (portFactor >= 2) // for inner RMW and concurrent outer Relase + Grant
 }
 
+case class InclusiveCacheRemapParameters(
+  en:      Boolean,
+  banks:   Int, //radnom table banks
+  hkeys:   Int, //sets
+  hkeyw:   Int,
+  users:   Int)
+{
+  if(en) {
+    require(banks > 0 && isPow2(banks))
+    require(hkeys > 0)
+    require(hkeyw > 0)
+    require(users > 0)
+  }
+  val channels = 4
+  val hkeysw   = log2Up(hkeys)
+  val usersw   = log2Up(users)
+  val banksw   = log2Up(banks)
+  val hkeyspb  = hkeys/banks  //hkeys per bank
+  val userspb  = users/banks  //users per bank
+  val hkeyspbw = log2Up(hkeyspb) //hkeys per bank bitw
+  val userspbw = log2Up(userspb) //users per bank bitw
+
+  val enableRemaperLog         = true
+  val enableDirEntrySwaperLog  = false
+  val enableDataBlockSwaperLog = false
+
+  //                remaper  x      c     a
+  val rtcamen = Seq(false, false, true, false)
+
+}
+
 case class InclusiveCacheControlParameters(
   address:   BigInt,
   beatBytes: Int)
@@ -132,6 +163,7 @@ case class InclusiveCacheControlParameters(
 case class InclusiveCacheParameters(
   cache:  CacheParameters,
   micro:  InclusiveCacheMicroParameters,
+  remap:  InclusiveCacheRemapParameters,
   control: Boolean,
   inner:  TLEdgeIn,
   outer:  TLEdgeOut)(implicit val p: Parameters)
@@ -180,6 +212,7 @@ case class InclusiveCacheParameters(
   val wayBits    = log2Ceil(cache.ways)
   val setBits    = log2Ceil(cache.sets)
   val offsetBits = log2Ceil(cache.blockBytes)
+  val blkadrBits = addressBits - offsetBits
   val tagBits    = addressBits - setBits - offsetBits
   val putBits    = log2Ceil(max(putLists, relLists))
 

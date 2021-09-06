@@ -37,6 +37,7 @@ class SinkD(params: InclusiveCacheParameters) extends Module
     val d = Decoupled(new TLBundleD(params.outer.bundle)).flip
     // Lookup the set+way from MSHRs
     val source = UInt(width = params.outer.bundle.sourceBits)
+    val swz    = Bool().flip     //swap zone
     val way    = UInt(width = params.wayBits).flip
     val set    = UInt(width = params.setBits).flip
     // Banked Store port
@@ -54,6 +55,7 @@ class SinkD(params: InclusiveCacheParameters) extends Module
   val hasData = params.outer.hasData(d.bits)
 
   io.source := Mux(d.valid, d.bits.source, RegEnable(d.bits.source, d.valid))
+  io.grant_req.swz := io.swz
   io.grant_req.way := io.way
   io.grant_req.set := io.set
 
@@ -72,6 +74,7 @@ class SinkD(params: InclusiveCacheParameters) extends Module
   io.resp.bits.denied := d.bits.denied
 
   io.bs_adr.bits.noop := !d.valid || !hasData
+  io.bs_adr.bits.swz  := io.swz
   io.bs_adr.bits.way  := io.way
   io.bs_adr.bits.set  := io.set
   io.bs_adr.bits.beat := Mux(d.valid, beat, RegEnable(beat + io.bs_adr.ready.asUInt, d.valid))

@@ -27,12 +27,14 @@ import TLPermissions._
 class SourceDRequest(params: InclusiveCacheParameters) extends FullRequest(params)
 {
   val sink = UInt(width = params.inner.bundle.sinkBits)
+  val swz  = Bool()     //swap zone
   val way  = UInt(width = params.wayBits)
   val bad  = Bool()
 }
 
 class SourceDHazard(params: InclusiveCacheParameters) extends InclusiveCacheBundle(params)
 {
+  val swz = Bool()     //swap zone
   val set = UInt(width = params.setBits)
   val way = UInt(width = params.wayBits)
 }
@@ -65,6 +67,8 @@ class SourceD(params: InclusiveCacheParameters) extends Module
     val evict_safe = Bool()
     val grant_req  = new SourceDHazard(params).flip
     val grant_safe = Bool()
+    //for use by rempaer
+    val idle       = Bool() //can remap safely
   }
 
   val beatBytes = params.inner.manager.beatBytes
@@ -108,6 +112,7 @@ class SourceD(params: InclusiveCacheParameters) extends Module
 
   io.bs_radr.valid     := s1_valid_r
   io.bs_radr.bits.noop := Bool(false)
+  io.bs_radr.bits.swz  := s1_req.swz
   io.bs_radr.bits.way  := s1_req.way
   io.bs_radr.bits.set  := s1_req.set
   io.bs_radr.bits.beat := s1_beat
@@ -267,6 +272,7 @@ class SourceD(params: InclusiveCacheParameters) extends Module
 
   io.bs_wadr.valid := s4_full && s4_need_bs
   io.bs_wadr.bits.noop := Bool(false)
+  io.bs_wadr.bits.swz  := s4_req.swz
   io.bs_wadr.bits.way  := s4_req.way
   io.bs_wadr.bits.set  := s4_req.set
   io.bs_wadr.bits.beat := s4_beat
@@ -386,4 +392,6 @@ class SourceD(params: InclusiveCacheParameters) extends Module
   // SourceD cannot overlap with SinkC b/c the only way inner caches could become
   // dirty such that they want to put data in via SinkC is if we Granted them permissions,
   // which must flow through the SourecD pipeline.
+
+  io.idle := !s1_valid & !s2_valid & !s3_valid & s2_ready & s3_ready & s4_ready
 }

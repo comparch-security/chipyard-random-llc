@@ -21,7 +21,7 @@ trait HasInclusiveCachePFCManager { this: sifive.blocks.inclusivecache.Inclusive
     nClients = nclients,
     rebt = Some((0 until nschedulers).map(_ =>
                   Seq(new P0L2PFCReg(),  // order !!!!!
-                      new P1L2PFCReg(),
+                      new RemaperPFCReg(),
                       new TileLinkPFCReg(),
                       new TileLinkPFCReg()
                   )).reduce(_++_)),
@@ -36,21 +36,21 @@ trait HasInclusiveCachePFCManager { this: sifive.blocks.inclusivecache.Inclusive
    val rePagesperScheduler = pfcmanager.io.update.reg.size / nschedulers
    val raPagesperScheduler = pfcmanager.io.update.ram.size / nschedulers
    (0 until nschedulers).map( i => {
-      val restartid   = rePagesperScheduler * i
-      val rastartid   = raPagesperScheduler * i
-      val EventG0     = pfcmanager.io.update.reg.get(restartid+0)
-      val EventG1     = pfcmanager.io.update.reg.get(restartid+1)
-      val ITLinkEvent = pfcmanager.io.update.reg.get(restartid+2).asInstanceOf[TileLinkPFCReg]
-      val OTLinkEvent = pfcmanager.io.update.reg.get(restartid+3).asInstanceOf[TileLinkPFCReg]
-      val SetMiss     = pfcmanager.io.update.ram.get(rastartid+0)
-      val SetEV       = pfcmanager.io.update.ram.get(rastartid+1)
+      val restartid          = rePagesperScheduler * i
+      val rastartid          = raPagesperScheduler * i
+      val EventG0            = pfcmanager.io.update.reg.get(restartid+0)
+      val RemaperEvent       = pfcmanager.io.update.reg.get(restartid+1)
+      val ITLinkEvent        = pfcmanager.io.update.reg.get(restartid+2).asInstanceOf[TileLinkPFCReg]
+      val OTLinkEvent        = pfcmanager.io.update.reg.get(restartid+3).asInstanceOf[TileLinkPFCReg]
+      val SetMiss            = pfcmanager.io.update.ram.get(rastartid+0)
+      val SetEV              = pfcmanager.io.update.ram.get(rastartid+1)
 
-      EventG0         := schedulers(i).io.pfcupdate.g0
-      EventG1         := schedulers(i).io.pfcupdate.g1
-      ITLinkEvent     := schedulers(i).io.pfcupdate.itlink
-      OTLinkEvent     := schedulers(i).io.pfcupdate.otlink
-      SetMiss         := schedulers(i).io.pfcupdate.setmiss
-      SetEV           := schedulers(i).io.pfcupdate.setev
+      EventG0               := schedulers(i).io.pfcupdate.g0
+      RemaperEvent          := schedulers(i).io.pfcupdate.remaper
+      ITLinkEvent           := schedulers(i).io.pfcupdate.itlink
+      OTLinkEvent           := schedulers(i).io.pfcupdate.otlink
+      SetMiss               := schedulers(i).io.pfcupdate.setmiss
+      SetEV                 := schedulers(i).io.pfcupdate.setev
 
    })
   } 
@@ -59,8 +59,8 @@ trait HasInclusiveCachePFCManager { this: sifive.blocks.inclusivecache.Inclusive
 trait HasSchedulerPFC { this: sifive.blocks.inclusivecache.Scheduler =>
 
   def connectPFC(params: sifive.blocks.inclusivecache.InclusiveCacheParameters) = {
-    io.pfcupdate.g0.elements.foreach(_._2 := false.B)  
-    io.pfcupdate.g1.elements.foreach(_._2 := false.B) 
+    io.pfcupdate.g0.elements.foreach(_._2 := false.B)
+    io.pfcupdate.remaper  := remaper.io.pfcupdate
 
     freechips.rocketchip.pfc.connect.connectTileLinkPFC(io.in,  params.inner, io.pfcupdate.itlink)
     freechips.rocketchip.pfc.connect.connectTileLinkPFC(io.out, params.outer, io.pfcupdate.otlink)

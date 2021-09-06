@@ -23,6 +23,7 @@ import freechips.rocketchip.tilelink._
 class SinkXRequest(params: InclusiveCacheParameters) extends InclusiveCacheBundle(params)
 {
   val address = UInt(width = params.inner.bundle.addressBits)
+  val source  = UInt(width = 2) //0: from  remaper  1: from core control 2: from core control(when remaper evict twice)
 }
 
 class SinkX(params: InclusiveCacheParameters) extends Module
@@ -30,14 +31,21 @@ class SinkX(params: InclusiveCacheParameters) extends Module
   val io = new Bundle {
     val req = Decoupled(new FullRequest(params))
     val x = Decoupled(new SinkXRequest(params)).flip
+    val diradr =  Decoupled(new DirectoryRead(params)).flip
+    //for use by rempaer
+    val idle    = Bool()                                              //can remap safely
   }
 
   val x = Queue(io.x, 1)
-  val (tag, set, offset) = params.parseAddress(x.bits.address)
+  val diradr = Queue(io.diradr, 1)
+  val (tag, set, offset) = if(params.remap.en) (diradr.bits.tag, diradr.bits.set, 0.U) else params.parseAddress(x.bits.address)
 
-  x.ready := io.req.ready
-  io.req.valid := x.valid
-  params.ccover(x.valid && !x.ready, "SINKX_STALL", "Backpressure when accepting a control message")
+  x.ready      := io.req.ready
+  diradr.ready := io.req.ready
+  io.req.valid := (if(params.remap.en) diradr.valid else x.valid)
+
+  if(params.remap.en) params.ccover(diradr.valid && !diradr.ready, "SINKX_STALL", "Backpressure when accepting a control message")
+  else                params.ccover(x.valid      && !x.ready,      "SINKX_STALL", "Backpressure when accepting a control message")
 
   io.req.bits.prio   := Vec(UInt(1, width=3).asBools) // same prio as A
   io.req.bits.control:= Bool(true)
@@ -50,4 +58,11 @@ class SinkX(params: InclusiveCacheParameters) extends Module
   io.req.bits.offset := UInt(0)
   io.req.bits.set    := set
   io.req.bits.tag    := tag
+
+  if(params.remap.en) {
+    io.idle  := !diradr.valid
+    io.req.bits.source := x.bits.source
+  } else {
+    io.idle  := !x.valid
+  }
 }

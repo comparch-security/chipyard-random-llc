@@ -27,7 +27,7 @@ class QueuedRequest(params: InclusiveCacheParameters) extends InclusiveCacheBund
   val param  = UInt(width = 3)
   val size   = UInt(width = params.inner.bundle.sizeBits)
   val source = UInt(width = params.inner.bundle.sourceBits)
-  val tag    = UInt(width = params.tagBits)
+  val tag    = UInt(width = if(params.remap.en) params.blkadrBits else params.tagBits)
   val offset = UInt(width = params.offsetBits)
   val put    = UInt(width = params.putBits)
 }

@@ -28,6 +28,7 @@ import scala.math.{max, min}
 abstract class BankedStoreAddress(val inner: Boolean, params: InclusiveCacheParameters) extends InclusiveCacheBundle(params)
 {
   val noop = Bool() // do not actually use the SRAMs, just block their use
+  val swz  = Bool()     //swap zone
   val way  = UInt(width = params.wayBits)
   val set  = UInt(width = params.setBits)
   val beat = UInt(width = if (inner) params.innerBeatBits else params.outerBeatBits)
@@ -68,16 +69,24 @@ class BankedStore(params: InclusiveCacheParameters) extends Module
     val sourceD_rdat = new BankedStoreInnerDecoded(params)
     val sourceD_wadr = Decoupled(new BankedStoreInnerAddress(params)).flip
     val sourceD_wdat = new BankedStoreInnerPoison(params).flip
+    //remaper
+    val rreq         = Decoupled(new SwaperReq(params)).flip
   }
 
   val innerBytes = params.inner.manager.beatBytes
   val outerBytes = params.outer.manager.beatBytes
   val rowBytes = params.micro.portFactor * max(innerBytes, outerBytes)
+
   require (rowBytes < params.cache.sizeBytes)
   val rowEntries = params.cache.sizeBytes / rowBytes
   val rowBits = log2Ceil(rowEntries)
   val numBanks = rowBytes / params.micro.writeBytes
   val codeBits = 8*params.micro.writeBytes
+
+  val swaper = Module(new DataBlockSwaper(params))
+  swaper.io.rreq.valid := io.rreq.valid
+  swaper.io.rreq.bits  := io.rreq.bits
+  io.rreq.ready        := swaper.io.rreq.ready
 
   val cc_banks = Seq.tabulate(numBanks) {
     i =>
@@ -107,6 +116,7 @@ class BankedStore(params: InclusiveCacheParameters) extends Module
 
   class Request extends Bundle {
     val wen      = Bool()
+    val swz      = Bool()
     val index    = UInt(width = rowBits)
     val bankSel  = UInt(width = numBanks)
     val bankSum  = UInt(width = numBanks) // OR of all higher priority bankSels
@@ -128,11 +138,12 @@ class BankedStore(params: InclusiveCacheParameters) extends Module
 
     val select = UIntToOH(a(bankBits-1, 0), numBanks/ports)
     val ready  = Cat(Seq.tabulate(numBanks/ports) { i => !(out.bankSum((i+1)*ports-1, i*ports) & m).orR } .reverse)
-    b.ready := ready(a(bankBits-1, 0))
+    b.ready := ready(a(bankBits-1, 0)) & !swaper.io.busy
 
     out.wen      := write
+    out.swz      := b.bits.swz
     out.index    := a >> bankBits
-    out.bankSel  := Mux(b.valid, FillInterleaved(ports, select) & Fill(numBanks/ports, m), UInt(0))
+    out.bankSel  := Mux(b.valid & !swaper.io.busy, FillInterleaved(ports, select) & Fill(numBanks/ports, m), UInt(0))
     out.bankEn   := Mux(b.bits.noop, UInt(0), out.bankSel & FillInterleaved(ports, ready))
     out.data     := Vec(Seq.fill(numBanks/ports) { words }.flatten)
 
@@ -164,11 +175,30 @@ class BankedStore(params: InclusiveCacheParameters) extends Module
     val en  = reqs.map(_.bankEn(i)).reduce(_||_)
     val sel = reqs.map(_.bankSel(i))
     val wen = PriorityMux(sel, reqs.map(_.wen))
+    val swz = PriorityMux(sel, reqs.map(_.swz))
     val idx = PriorityMux(sel, reqs.map(_.index))
     val data= PriorityMux(sel, reqs.map(_.data(i)))
 
-    when (wen && en) { b.write(idx, data) }
-    RegEnable(b.read(idx, !wen && en), RegNext(!wen && en))
+    val swaper_req    = swaper.io.req(i)
+    val swaper_resp   = swaper.io.resp(i)
+    val swaper_ireq   = swaper.io.ireq(i)
+    val swaper_iresp  = swaper.io.iresp(i)
+
+    swaper_req.valid        :=  en & swz
+    swaper_req.bits.wen     :=  wen
+    swaper_req.bits.index   :=  idx
+    swaper_req.bits.data    :=  data
+
+    val regout = Wire(UInt())
+    if(params.remap.en) {
+        when ((wen && en && !swz) || (swaper_ireq.bits.wen && swaper_ireq.valid)) { b.write(Mux(swaper_ireq.valid, swaper_ireq.bits.index, idx), Mux(swaper_ireq.valid, swaper_ireq.bits.data, data)) }
+        swaper_iresp := b.read(Mux(swaper_ireq.valid, swaper_ireq.bits.index, idx), (!wen && en) | (!swaper_ireq.bits.wen && swaper_ireq.valid))
+        regout := RegEnable(Mux(swaper_resp.valid, swaper_resp.bits, swaper_iresp), RegNext(!wen && en))
+    } else {
+        when (wen && en)  { b.write(idx, data) }
+        regout := RegEnable(b.read(idx, !wen && en), RegNext(!wen && en))
+    }
+    regout
   })
 
   val regsel_sourceC = RegNext(RegNext(sourceC_req.bankEn))

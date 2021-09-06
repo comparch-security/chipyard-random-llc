@@ -25,7 +25,8 @@ class SourceCRequest(params: InclusiveCacheParameters) extends InclusiveCacheBun
   val opcode = UInt(width = 3)
   val param  = UInt(width = 3)
   val source = UInt(width = params.outer.bundle.sourceBits)
-  val tag    = UInt(width = params.tagBits)
+  val swz    = Bool()     //swap zone
+  val tag    = UInt(width = if(params.remap.en) params.blkadrBits else params.tagBits)
   val set    = UInt(width = params.setBits)
   val way    = UInt(width = params.wayBits)
   val dirty  = Bool()
@@ -72,9 +73,11 @@ class SourceC(params: InclusiveCacheParameters) extends Module
 
   io.evict_req.set := req.set
   io.evict_req.way := req.way
+  io.evict_req.swz := req.swz
 
   io.bs_adr.valid := (beat.orR || io.evict_safe) && want_data
   io.bs_adr.bits.noop := Bool(false)
+  io.bs_adr.bits.swz  := req.swz
   io.bs_adr.bits.way  := req.way
   io.bs_adr.bits.set  := req.set
   io.bs_adr.bits.beat := beat
@@ -107,7 +110,8 @@ class SourceC(params: InclusiveCacheParameters) extends Module
   c.bits.param   := s3_req.param
   c.bits.size    := UInt(params.offsetBits)
   c.bits.source  := s3_req.source
-  c.bits.address := params.expandAddress(s3_req.tag, s3_req.set, UInt(0))
+  c.bits.address := (if(params.remap.en) params.expandAddress(s3_req.tag(params.blkadrBits-1, params.setBits), s3_req.tag(params.setBits-1, 0), UInt(0))
+                     else                params.expandAddress(s3_req.tag,                                      s3_req.set,                      UInt(0)))
   c.bits.data    := io.bs_dat.data
   c.bits.corrupt := Bool(false)
 

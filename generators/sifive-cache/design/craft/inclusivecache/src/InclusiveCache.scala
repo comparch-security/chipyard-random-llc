@@ -31,6 +31,7 @@ import freechips.rocketchip.util._
 class InclusiveCache(
   val cache: CacheParameters,
   val micro: InclusiveCacheMicroParameters,
+  val remap: InclusiveCacheRemapParameters,
   control: Option[InclusiveCacheControlParameters] = None
   )(implicit p: Parameters)
     extends LazyModule
@@ -177,11 +178,27 @@ class InclusiveCache(
     val lgBlockBytesR = RegField.r(8, UInt(log2Ceil(cache.blockBytes)), RegFieldDesc("lgBlockBytes",
       "Base-2 logarithm of the bytes per cache block", reset=Some(log2Ceil(cache.blockBytes))))
 
+    val remaperConfigR = Reg(new RemaperConfig())
+    val remaperConfig  = RegField.w(64, RegWriteFn((ivalid, oready, data) => {
+      when (ivalid ) { remaperConfigR :=  new RemaperConfig().fromBits(data) }
+      (true.B, true.B)
+    }), RegFieldDesc("Remaper", "Config"))
+    when(reset) { remaperConfigR.en := false.B }
+
+    val attackDetectorConfigR = Reg(new AttackDetectorConfig())
+    val attackDetectorConfig  = RegField.w(64, RegWriteFn((ivalid, oready, data) => {
+      when (ivalid ) { attackDetectorConfigR :=  new AttackDetectorConfig().fromBits(data) }
+      (true.B, true.B)
+    }), RegFieldDesc("AttackDetector", "Config"))
+    when(reset) { attackDetectorConfigR.en := false.B }
+
     val regmap = ctlnode.map { c =>
       c.regmap(
         0x000 -> RegFieldGroup("Config", Some("Information about the Cache Configuration"), Seq(banksR, waysR, lgSetsR, lgBlockBytesR)),
         0x200 -> (if (control.get.beatBytes >= 8) Seq(flush64) else Seq()),
-        0x240 -> Seq(flush32)
+        0x240 -> Seq(flush32),
+        0x280 -> Seq(remaperConfig),
+        0x2C0 -> Seq(attackDetectorConfig)
       )
     }
 
@@ -196,7 +213,7 @@ class InclusiveCache(
           s"but ${m.name} only supports (${m.supportsAcquireT})!")
       }
 
-      val params = InclusiveCacheParameters(cache, micro, control.isDefined, edgeIn, edgeOut)
+      val params = InclusiveCacheParameters(cache, micro, remap, control.isDefined, edgeIn, edgeOut)
       val scheduler = Module(new Scheduler(params))
 
       scheduler.io.in <> in
@@ -212,6 +229,10 @@ class InclusiveCache(
       scheduler.io.req.valid := flushInValid && flushSelect
       scheduler.io.req.bits.address := flushInAddress
       scheduler.io.resp.ready := !flushOutValid
+
+      //config
+      scheduler.io.config.remaper        := remaperConfigR
+      scheduler.io.config.attackdetector := attackDetectorConfigR
 
       // Fix-up the missing addresses. We do this here so that the Scheduler can be
       // deduplicated by Firrtl to make hierarchical place-and-route easier.

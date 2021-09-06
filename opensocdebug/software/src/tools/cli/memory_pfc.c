@@ -57,6 +57,7 @@ pfcp_t page_core;
 pfcp_t page_ISmiss; //I Set miss
 pfcp_t page_DSmiss;
 pfcp_t page_DSWB;
+pfcp_t page_L2Remaper;
 pfcp_t page_L2ITL;
 pfcp_t page_L2OTL;
 pfcp_t page_L2Smiss;
@@ -115,8 +116,8 @@ void osd_memory_pfc(struct osd_context *ctx, uint8_t sel) {
   //sel
   switch (sel) {
     case 1:   page_core.sel=1;  break;
-    case 2:   page_L2ITL.sel=1; page_L2OTL.sel=1; break;
-    case 3:   page_core.sel=1;  page_L2ITL.sel=1; page_L2OTL.sel=1; break;
+    case 2:   page_L2ITL.sel=1; page_L2ITL.sel=1; page_L2OTL.sel=1; page_L2Remaper.sel = 1; break;
+    case 3:   page_core.sel=1;  page_L2ITL.sel=1;  page_L2ITL.sel=1; page_L2OTL.sel=1;  page_L2Remaper.sel = 1; break;
     default:  selallpage(); break;
   }
 
@@ -214,6 +215,9 @@ void cd_pfcstruct(uint8_t c) {  //1:cread or 2:delete
     page_DSWB.id          = 0x82;
     page_DSWB.disp        = 0;   
 
+    page_L2Remaper.id     = 0x01;
+    page_L2Remaper.disp   = 1;
+
     page_L2ITL.id         = 0x02;
     page_L2ITL.disp       = 1;   
 
@@ -239,12 +243,13 @@ void cd_pfcstruct(uint8_t c) {  //1:cread or 2:delete
 
     man_L2.id            = 0x08;
     man_L2.name          = "L2";
-    man_L2.npages        = 4;
+    man_L2.npages        = 5;
     man_L2.nevents       = 0;
-    man_L2.page[0]       = &page_L2ITL;
-    man_L2.page[1]       = &page_L2OTL;
-    man_L2.page[2]       = &page_L2Smiss;
-    man_L2.page[3]       = &page_L2SWB;
+    man_L2.page[0]       = &page_L2Remaper;
+    man_L2.page[1]       = &page_L2ITL;
+    man_L2.page[2]       = &page_L2OTL;
+    man_L2.page[3]       = &page_L2Smiss;
+    man_L2.page[4]       = &page_L2SWB;
     
     pfc.nmans    = 2;
     pfc.man[0]   = &man_Tile;
@@ -375,30 +380,43 @@ void nameevents(void) {
     "e_Err1             "   //event48
   };
 
-  page_core.pname       = "Core";
-  page_core.ename       = COEVENTG0_NAME;
-  page_core.nevents     = 37;
+  static char Remaper_NAME[6][32] = {
+    "finish            ",   //event0
+    "nop               ",   //event1
+    "busy              ",   //event2
+    "swap              ",   //event3
+    "evict             ",   //event4
+    "ebusy             ",   //event5
+  };
 
-  page_ISmiss.pname     = "Imiss_Set";
-  page_ISmiss.nevents   = 64;
+  page_core.pname           = "Core";
+  page_core.ename           = COEVENTG0_NAME;
+  page_core.nevents         = 37;
 
-  page_DSWB.pname       = "DEV_Set";
-  page_DSWB.nevents     = 64;
+  page_ISmiss.pname         = "Imiss_Set";
+  page_ISmiss.nevents       = 64;
 
-  page_DSmiss.pname     = "Dmiss_Set";
-  page_DSmiss.nevents   = 64;
+  page_DSWB.pname           = "DEV_Set";
+  page_DSWB.nevents         = 64;
 
-  page_L2ITL.pname      = "inner_TLink";
-  page_L2ITL.ename      = TLEVENTG_NAME;
-  page_L2ITL.nevents    = 49;
+  page_DSmiss.pname         = "Dmiss_Set";
+  page_DSmiss.nevents       = 64;
 
-  page_L2OTL.pname      = "outer_TLink";
-  page_L2OTL.ename      = TLEVENTG_NAME;
-  page_L2OTL.nevents    = 49;
+  page_L2Remaper.pname      = "Remaper";
+  page_L2Remaper.ename      = Remaper_NAME;
+  page_L2Remaper.nevents    = 6;
 
-  page_L2SWB.pname      = "EV_Set";
-  page_L2SWB.nevents    = 1024;
+  page_L2ITL.pname          = "inner_TLink";
+  page_L2ITL.ename          = TLEVENTG_NAME;
+  page_L2ITL.nevents        = 49;
 
-  page_L2Smiss.pname    = "miss_Set";
-  page_L2Smiss.nevents  = 1024;
+  page_L2OTL.pname          = "outer_TLink";
+  page_L2OTL.ename          = TLEVENTG_NAME;
+  page_L2OTL.nevents        = 49;
+
+  page_L2SWB.pname          = "EV_Set";
+  page_L2SWB.nevents        = 1024;
+
+  page_L2Smiss.pname        = "miss_Set";
+  page_L2Smiss.nevents      = 1024;
 }
