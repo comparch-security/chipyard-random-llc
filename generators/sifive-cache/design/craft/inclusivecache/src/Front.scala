@@ -115,7 +115,6 @@ class FSink[T <: TLAddrChannel](val gen: T, params: InclusiveCacheParameters) ex
 
   val block          = Wire(Bool())    //block front req
   val blkadr         = Wire(UInt())
-  val dirresulthset  = Wire(UInt())
   //(w_ = waiting)
   val w_reqrtab      = RegInit(false.B)
   val w_reqdir       = RegInit(false.B)
@@ -134,8 +133,6 @@ class FSink[T <: TLAddrChannel](val gen: T, params: InclusiveCacheParameters) ex
       camMatch               := false.B
       block                  := io.rstatus.blockSinkA
       blkadr                 := Cat(tag, set)
-      io.dir_read.bits.set   := Mux(io.rstatus.cloc === RTAL.LEFT, lhset, rhset)
-      dirresulthset          := Mux(io.dir_result.bits.hit, RegNext(io.dir_read.bits.set), Mux(io.rstatus.nloc === RTAL.LEFT, lhset, rhset))
     }
     case c: TLBundleC => {
       val (tag, set, offset) = params.parseAddress(c.address)
@@ -143,8 +140,6 @@ class FSink[T <: TLAddrChannel](val gen: T, params: InclusiveCacheParameters) ex
       camMatch               := cam.valid & cam.bits.tag === blkadr
       block                  := io.rstatus.blockSinkC      
       blkadr                 := Cat(tag, set)
-      io.dir_read.bits.set   := lhset
-      dirresulthset          := Mux(io.dir_result.bits.hit, lhset, rhset)
     }
     case _  => require(false)
   }
@@ -158,7 +153,7 @@ class FSink[T <: TLAddrChannel](val gen: T, params: InclusiveCacheParameters) ex
   diradr_arb.io.in(3).valid    := io.b_result.valid
   diradr_arb.io.in(3).bits.set := io.b_result.bits.set
   diradr_arb.io.in(4).valid    := io.dir_result.valid
-  diradr_arb.io.in(4).bits.set := dirresulthset
+  diradr_arb.io.in(4).bits.set := Mux(io.dir_result.bits.hit && !io.dir_result.bits.swz, RegNext(io.dir_read.bits.set), Mux(io.rstatus.nloc === RTAL.LEFT, lhset, rhset))
 
   //io.front      --->  front
   front.io.enq.valid           :=  io.front.valid     && ((io.rstatus.oneloc && !block && io.rtab.req.ready) || diradr_arb.io.in(1).valid || diradr_arb.io.in(2).valid || diradr_arb.io.in(3).valid || diradr_arb.io.in(4).valid)
@@ -188,6 +183,7 @@ class FSink[T <: TLAddrChannel](val gen: T, params: InclusiveCacheParameters) ex
   //w_reqdir
   io.dir_read.valid            := w_reqdir
   io.dir_read.bits.tag         := dir_tag
+  io.dir_read.bits.set         := Mux(io.rstatus.cloc === RTAL.LEFT, lhset, rhset)
 
   //cam
   when(reset | (block ^ RegNext(block))) { cam.valid := false.B }
