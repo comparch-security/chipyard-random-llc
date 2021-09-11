@@ -380,13 +380,15 @@ void nameevents(void) {
     "e_Err1             "   //event48
   };
 
-  static char Remaper_NAME[6][32] = {
+  static char Remaper_NAME[8][32] = {
     "finish            ",   //event0
     "nop               ",   //event1
     "busy              ",   //event2
     "swap              ",   //event3
     "evict             ",   //event4
     "ebusy             ",   //event5
+    "pause             ",   //event6
+    "pbusy             "    //event7
   };
 
   page_core.pname           = "Core";
@@ -404,7 +406,7 @@ void nameevents(void) {
 
   page_L2Remaper.pname      = "Remaper";
   page_L2Remaper.ename      = Remaper_NAME;
-  page_L2Remaper.nevents    = 6;
+  page_L2Remaper.nevents    = 8;
 
   page_L2ITL.pname          = "inner_TLink";
   page_L2ITL.ename          = TLEVENTG_NAME;

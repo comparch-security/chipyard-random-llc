@@ -397,13 +397,13 @@ class Scheduler(params: InclusiveCacheParameters) extends Module
       fsink.io.b_result.bits.set  := {
         val b_set   = Reg(UInt(width = params.setBits))
         mshrs.map { case m => {
-          when(m.io.status.bits.b.valid && req_addr === fsink.io.b_read.bits.tag) { b_set := m.io.status.bits.b.bits.set }
+          when(m.io.status.bits.b.valid && req_addr === m.io.status.bits.b.bits.tag) { b_set := m.io.status.bits.b.bits.set }
         }}
       b_set
       }
     })
     //fsink read directory to get true hset
-    dir_arb.io.out.ready := !(mshr_uses_directory || alloc_uses_directory)
+    dir_arb.io.out.ready := !(mshr_uses_directory || alloc_uses_directory) && directory.io.ready
     when(!(mshr_uses_directory || alloc_uses_directory)) {
       directory.io.read.valid   := dir_arb.io.out.valid
       directory.io.read.bits    := dir_arb.io.out.bits
@@ -430,13 +430,18 @@ class Scheduler(params: InclusiveCacheParameters) extends Module
     idle.sinkA               := !io.in.a.valid     && fsinkA.io.idle   && sinkA.io.idle
     idle.sinkC               := !io.in.c.valid     && fsinkC.io.idle   && sinkC.io.idle
     idle.sinkX               := !io.req.valid      && fsinkX.io.idle   && sinkX.io.idle
+    idle.sourceC             := !schedule.c.valid  && sourceC.io.idle
     idle.sourceD             := !schedule.d.valid  && sourceD.io.idle
-    remaper.io.safe.mshr     := RegNext(idle.mshr)
-    remaper.io.safe.sinkA    := RegNext(idle.mshr & idle.sinkA)
-    remaper.io.safe.sinkC    := RegNext(idle.mshr & idle.sinkC)
-    remaper.io.safe.sinkX    := RegNext(idle.mshr & idle.sinkX)
-    remaper.io.safe.sourceD  := RegNext(idle.mshr & idle.sourceD)
-    remaper.io.safe.all      := RegNext(idle.mshr & idle.sinkA & idle.sinkC & idle.sinkX & idle.sourceD)
+    remaper.io.idle.mshr     := RegNext(idle.mshr)
+    remaper.io.idle.sinkA    := RegNext(idle.mshr && idle.sinkA)
+    remaper.io.idle.sinkC    := RegNext(idle.mshr && idle.sinkC)
+    remaper.io.idle.sinkX    := RegNext(idle.mshr && idle.sinkX)
+    remaper.io.idle.sourceC  := RegNext(idle.mshr && idle.sourceC)
+    remaper.io.idle.sourceD  := RegNext(idle.mshr && idle.sourceD)
+    remaper.io.idle.all      := RegNext(idle.mshr && idle.sinkA && idle.sinkX && idle.sinkC && idle.sourceC && idle.sourceD)
+
+    //remaper pause req
+    remaper.io.pause  := io.in.a.valid || io.in.c.valid
 
     //remaper config
     remaper.io.config := io.config.remaper

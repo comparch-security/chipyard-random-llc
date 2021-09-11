@@ -149,7 +149,7 @@ class FSink[T <: TLAddrChannel](val gen: T, params: InclusiveCacheParameters) ex
   diradr_arb.io.in(1).valid    := io.front.valid && camMatch
   diradr_arb.io.in(1).bits.set := cam.bits.set
   diradr_arb.io.in(2).valid    := RegNext(io.rtab.resp.valid & swapped)
-  diradr_arb.io.in(2).bits.set := Mux(io.rstatus.nloc === RTAL.LEFT, lhset, rhset)
+  diradr_arb.io.in(2).bits.set := RegEnable(Mux(io.rstatus.nloc === RTAL.LEFT, io.rtab.resp.bits.lhset, io.rtab.resp.bits.rhset), io.rtab.resp.valid)
   diradr_arb.io.in(3).valid    := io.b_result.valid
   diradr_arb.io.in(3).bits.set := io.b_result.bits.set
   diradr_arb.io.in(4).valid    := io.dir_result.valid
@@ -183,7 +183,7 @@ class FSink[T <: TLAddrChannel](val gen: T, params: InclusiveCacheParameters) ex
   //w_reqdir
   io.dir_read.valid            := w_reqdir
   io.dir_read.bits.tag         := dir_tag
-  io.dir_read.bits.set         := Mux(io.rstatus.cloc === RTAL.LEFT, lhset, rhset)
+  io.dir_read.bits.set         := RegEnable(Mux(io.rstatus.cloc === RTAL.LEFT, io.rtab.resp.bits.lhset, io.rtab.resp.bits.rhset), io.rtab.resp.valid)
 
   //cam
   when(reset | (block ^ RegNext(block))) { cam.valid := false.B }

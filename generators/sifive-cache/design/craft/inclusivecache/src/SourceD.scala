@@ -329,9 +329,9 @@ class SourceD(params: InclusiveCacheParameters) extends Module
   val pre_s7_dat  = Mux(retire,   s6_dat,  s7_dat)
   val pre_s4_full = s4_latch || (!(io.bs_wadr.ready || !s4_need_bs) && s4_full)
 
-  val pre_s3_4_match  = pre_s4_req.set === pre_s3_req.set && pre_s4_req.way === pre_s3_req.way && pre_s4_beat === pre_s3_beat && pre_s4_full
-  val pre_s3_5_match  = pre_s5_req.set === pre_s3_req.set && pre_s5_req.way === pre_s3_req.way && pre_s5_beat === pre_s3_beat
-  val pre_s3_6_match  = pre_s6_req.set === pre_s3_req.set && pre_s6_req.way === pre_s3_req.way && pre_s6_beat === pre_s3_beat
+  val pre_s3_4_match  = pre_s4_req.swz === pre_s3_req.swz && pre_s4_req.set === pre_s3_req.set && pre_s4_req.way === pre_s3_req.way && pre_s4_beat === pre_s3_beat && pre_s4_full
+  val pre_s3_5_match  = pre_s5_req.swz === pre_s3_req.swz && pre_s5_req.set === pre_s3_req.set && pre_s5_req.way === pre_s3_req.way && pre_s5_beat === pre_s3_beat
+  val pre_s3_6_match  = pre_s6_req.swz === pre_s3_req.swz && pre_s6_req.set === pre_s3_req.set && pre_s6_req.way === pre_s3_req.way && pre_s6_beat === pre_s3_beat
 
   val pre_s3_4_bypass = Mux(pre_s3_4_match, MaskGen(pre_s4_req.offset, pre_s4_req.size, beatBytes, writeBytes), UInt(0))
   val pre_s3_5_bypass = Mux(pre_s3_5_match, MaskGen(pre_s5_req.offset, pre_s5_req.size, beatBytes, writeBytes), UInt(0))
@@ -345,9 +345,9 @@ class SourceD(params: InclusiveCacheParameters) extends Module
 
   // Detect which parts of s1 will be bypassed from later pipeline stages (s1-s4)
   // Note: we also bypass from reads ahead in the pipeline to save power
-  val s1_2_match  = s2_req.set === s1_req.set && s2_req.way === s1_req.way && s2_beat === s1_beat && s2_full && s2_retires
-  val s1_3_match  = s3_req.set === s1_req.set && s3_req.way === s1_req.way && s3_beat === s1_beat && s3_full && s3_retires
-  val s1_4_match  = s4_req.set === s1_req.set && s4_req.way === s1_req.way && s4_beat === s1_beat && s4_full
+  val s1_2_match  = s2_req.swz === s1_req.swz && s2_req.set === s1_req.set && s2_req.way === s1_req.way && s2_beat === s1_beat && s2_full && s2_retires
+  val s1_3_match  = s3_req.swz === s1_req.swz && s3_req.set === s1_req.set && s3_req.way === s1_req.way && s3_beat === s1_beat && s3_full && s3_retires
+  val s1_4_match  = s4_req.swz === s1_req.swz && s4_req.set === s1_req.set && s4_req.way === s1_req.way && s4_beat === s1_beat && s4_full
 
   for (i <- 0 until 8) {
     val cover = UInt(i)
@@ -377,21 +377,24 @@ class SourceD(params: InclusiveCacheParameters) extends Module
 
   // Must ReleaseData=> be interlocked? RaW hazard
   io.evict_safe :=
-    (!busy    || io.evict_req.way =/= s1_req_reg.way || io.evict_req.set =/= s1_req_reg.set) &&
-    (!s2_full || io.evict_req.way =/= s2_req.way     || io.evict_req.set =/= s2_req.set) &&
-    (!s3_full || io.evict_req.way =/= s3_req.way     || io.evict_req.set =/= s3_req.set) &&
-    (!s4_full || io.evict_req.way =/= s4_req.way     || io.evict_req.set =/= s4_req.set)
+    (!busy    || io.evict_req.way =/= s1_req_reg.way || io.evict_req.set =/= s1_req_reg.set || io.evict_req.swz =/= s1_req_reg.swz)  &&
+    (!s2_full || io.evict_req.way =/= s2_req.way     || io.evict_req.set =/= s2_req.set     || io.evict_req.swz =/= s2_req.swz)      &&
+    (!s3_full || io.evict_req.way =/= s3_req.way     || io.evict_req.set =/= s3_req.set     || io.evict_req.swz =/= s3_req.swz)      &&
+    (!s4_full || io.evict_req.way =/= s4_req.way     || io.evict_req.set =/= s4_req.set     || io.evict_req.swz =/= s4_req.swz)
 
   // Must =>GrantData be interlocked? WaR hazard
   io.grant_safe :=
-    (!busy    || io.grant_req.way =/= s1_req_reg.way || io.grant_req.set =/= s1_req_reg.set) &&
-    (!s2_full || io.grant_req.way =/= s2_req.way     || io.grant_req.set =/= s2_req.set) &&
-    (!s3_full || io.grant_req.way =/= s3_req.way     || io.grant_req.set =/= s3_req.set) &&
-    (!s4_full || io.grant_req.way =/= s4_req.way     || io.grant_req.set =/= s4_req.set)
+    (!busy    || io.grant_req.way =/= s1_req_reg.way || io.grant_req.set =/= s1_req_reg.set || io.grant_req.swz =/= s1_req_reg.swz)  &&
+    (!s2_full || io.grant_req.way =/= s2_req.way     || io.grant_req.set =/= s2_req.set     || io.grant_req.swz =/= s2_req.swz)      &&
+    (!s3_full || io.grant_req.way =/= s3_req.way     || io.grant_req.set =/= s3_req.set     || io.grant_req.swz =/= s3_req.swz)      &&
+    (!s4_full || io.grant_req.way =/= s4_req.way     || io.grant_req.set =/= s4_req.set     || io.grant_req.swz =/= s4_req.swz)
 
   // SourceD cannot overlap with SinkC b/c the only way inner caches could become
   // dirty such that they want to put data in via SinkC is if we Granted them permissions,
   // which must flow through the SourecD pipeline.
 
-  io.idle := !s1_valid & !s2_valid & !s3_valid & s2_ready & s3_ready & s4_ready
+
+    io.idle := !busy        && !s2_full           && !s3_full            && !s4_full            &&
+               !s1_valid    && !s2_valid          && !s3_valid           && s2_ready            && s3_ready && s4_ready &&
+               !io.d.valid  && !io.pb_pop.valid   && !io.rel_pop.valid   && !io.bs_radr.valid   && !io.bs_wadr.valid
 }

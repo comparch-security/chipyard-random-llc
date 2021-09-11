@@ -252,6 +252,7 @@ class DirectoryEntrySwaper(params: InclusiveCacheParameters) extends Module
     val iread    = Decoupled(new DirectoryRead(params))  //inner read
     val iresp    = Valid(Vec(params.cache.ways, new DirectoryEntry(params))).flip //all way result
     val iwrite   = Decoupled(new DirectoryWrite(params))  //inner read
+    val busy     = Bool()
     //remap
     val rreq     = Decoupled(new SwaperReq(params)).flip
     val rresp    = Valid(new SwaperResp(params))
@@ -261,7 +262,11 @@ class DirectoryEntrySwaper(params: InclusiveCacheParameters) extends Module
   val rreq         = Reg(new SwaperReq(params))
   val swap_entry   = Reg(new DirectoryWrite(params)) //swap zone
   val resp_entry   = Wire(new DirectoryWrite(params)) //read from dir
-  when(reset) { swap_entry.data.state := INVALID }
+  when(reset) {
+    swap_entry.data.dirty     := false.B
+    swap_entry.data.state     := INVALID
+    swap_entry.data.clients   := 0.U
+  }
 
   //sel the swap way
   val invalids     = Cat(iways.map { case w => w.state === INVALID }.reverse)
@@ -293,6 +298,9 @@ class DirectoryEntrySwaper(params: InclusiveCacheParameters) extends Module
   io.result.bits.way      := 0.U
   //io.write
   when( io.write.valid & io.write.bits.swz )   { swap_entry := io.write.bits }
+  //io.busy
+
+  io.busy                 := io.rreq.valid || RegNext(io.rreq.valid || !s_idle || RegNext(!s_idle))
 
   //io.rreq:   receive cmd from remaper
   io.rreq.ready           := s_idle & io.iread.ready
@@ -303,9 +311,9 @@ class DirectoryEntrySwaper(params: InclusiveCacheParameters) extends Module
   io.iread.bits.tag       := 0.U
 
   //io.iresp:  receive dir
-  resp_entry.set  := io.rresp.bits.set
-  resp_entry.way  := io.rresp.bits.way
-  resp_entry.data := entryseled
+  resp_entry.set        := io.rresp.bits.set
+  resp_entry.way        := io.rresp.bits.way
+  resp_entry.data       := entryseled
   when( rreq.head & !hit ) { resp_entry.data.state :=  INVALID  }
 
   //io.iwrite: write dir
@@ -319,7 +327,15 @@ class DirectoryEntrySwaper(params: InclusiveCacheParameters) extends Module
    io.iwrite.bits.data.state    := INVALID
    io.iwrite.bits.data.clients  := 0.U
   }
-  when( io.iwrite.fire() )     {  swap_entry := resp_entry  }
+  when( io.iwrite.fire() )     {
+    swap_entry            := resp_entry
+    swap_entry.data.loc   := rreq.nloc
+  }
+  when( (io.rresp.valid && io.rresp.bits.nop) || (io.iwrite.fire() && io.rresp.bits.tail && !io.rresp.bits.evict.valid)) {
+    swap_entry.data.dirty     := false.B
+    swap_entry.data.state     := INVALID
+    swap_entry.data.clients   := 0.U
+  }
 
   //io.rresp:   resp next blkadr(tag) to remaper
   io.rresp.valid                 := iresp_v
@@ -354,12 +370,12 @@ class DirectoryEntrySwaper(params: InclusiveCacheParameters) extends Module
 
   if(params.remap.enableDirEntrySwaperLog)  {
     when( io.rresp.valid && !(io.rresp.bits.head & io.rresp.bits.tail)) {
-      when( io.rresp.bits.head                                                              )  {  printf("Entryswaper: head  tag %x from set %d way %d                                     \n", io.rresp.bits.tag,                                         io.rresp.bits.set,  io.rresp.bits.way                  )
-      } .elsewhen( !io.rresp.bits.head && !io.rresp.bits.tail                               )  {  printf("Entryswaper: swap  tag %x from set %d way %d to set %d way %d tag %x             \n", swap_entry.data.tag,  swap_entry.set,     swap_entry.way,  io.rresp.bits.set,  io.rresp.bits.way, entryseled.tag  )
-      } .elsewhen( !io.rresp.bits.head &&  io.rresp.bits.tail && !io.rresp.bits.evict.valid )  {  printf("Entryswaper: tail  tag %x from set %d way %d to set %d way %d                    \n", swap_entry.data.tag,  swap_entry.set,     swap_entry.way,  io.rresp.bits.set,  io.rresp.bits.way                  )
+      when( io.rresp.bits.head                                                              )  {  printf("Entryswaper: head  tag %x from set %x way %x                                     \n", io.rresp.bits.tag,                                         io.rresp.bits.set,  io.rresp.bits.way                  )
+      } .elsewhen( !io.rresp.bits.head && !io.rresp.bits.tail                               )  {  printf("Entryswaper: swap  tag %x from set %x way %x to set %x way %x tag %x             \n", swap_entry.data.tag,  swap_entry.set,     swap_entry.way,  io.rresp.bits.set,  io.rresp.bits.way, entryseled.tag  )
+      } .elsewhen( !io.rresp.bits.head &&  io.rresp.bits.tail && !io.rresp.bits.evict.valid )  {  printf("Entryswaper: tail  tag %x from set %x way %x to set %x way %x                    \n", swap_entry.data.tag,  swap_entry.set,     swap_entry.way,  io.rresp.bits.set,  io.rresp.bits.way                  )
       } .elsewhen( !io.rresp.bits.head &&  io.rresp.bits.tail &&  io.rresp.bits.evict.valid )  {
-        when(!swap_needb)                                                                      {  printf("Entryswaper: evict tag %x full set %d                                            \n", swap_entry.data.tag,                                       io.rresp.bits.set                                      )
-        }.otherwise                                                                            {  printf("Entryswaper: tail  tag %x from set %d way %d to set %d way %d evict tag %x       \n", swap_entry.data.tag,  swap_entry.set,     swap_entry.way,  io.rresp.bits.set,  io.rresp.bits.way, entryseled.tag  )}
+        when(!swap_needb)                                                                      {  printf("Entryswaper: evict tag %x full set %x                                            \n", swap_entry.data.tag,                                       io.rresp.bits.set                                      )
+        }.otherwise                                                                            {  printf("Entryswaper: tail  tag %x from set %x way %x to set %x way %x evict tag %x       \n", swap_entry.data.tag,  swap_entry.set,     swap_entry.way,  io.rresp.bits.set,  io.rresp.bits.way, entryseled.tag  )}
       } .otherwise                                                                             {  assert(!io.rresp.fire(), "Entryswaper: unexpected situation!!                            \n") } 
     }
   }
@@ -426,7 +442,7 @@ class DataBlockSwaper(params: InclusiveCacheParameters) extends Module
 
   //remap
   //io.rreq
-  io.busy          := RegNext(io.rreq.valid || !s_idle)
+  io.busy          := io.rreq.valid || RegNext(io.rreq.valid || !s_idle)
   io.rreq.ready    := rreq_ready
   when(io.ireq(0).valid && ((read_beats === last_Beats && rreq.head) || (write_beats === last_Beats && io.ireq(0).bits.wen))) {
     s_idle         := true.B
@@ -479,9 +495,9 @@ class DataBlockSwaper(params: InclusiveCacheParameters) extends Module
 
   if(params.remap.enableDataBlockSwaperLog) {
     when(io.rreq.fire()) {
-      when(  io.rreq.bits.head && !io.rreq.bits.tail ) { printf("Blockswaper: head from set %d way %d                  \n",                      io.rreq.bits.set,  io.rreq.bits.way) }
-      when( !io.rreq.bits.head &&  io.rreq.bits.tail ) { printf("Blockswaper: tail from set %d way %d to set %d way %d \n", rreq.set, rreq.way,  io.rreq.bits.set,  io.rreq.bits.way) }
-      when( !io.rreq.bits.head && !io.rreq.bits.tail ) { printf("Blockswaper: swap from set %d way %d to set %d way %d \n", rreq.set, rreq.way,  io.rreq.bits.set,  io.rreq.bits.way) }
+      when(  io.rreq.bits.head && !io.rreq.bits.tail ) { printf("Blockswaper: head from set %x way %x                  \n",                      io.rreq.bits.set,  io.rreq.bits.way) }
+      when( !io.rreq.bits.head &&  io.rreq.bits.tail ) { printf("Blockswaper: tail from set %x way %x to set %x way %x \n", rreq.set, rreq.way,  io.rreq.bits.set,  io.rreq.bits.way) }
+      when( !io.rreq.bits.head && !io.rreq.bits.tail ) { printf("Blockswaper: swap from set %x way %x to set %x way %x \n", rreq.set, rreq.way,  io.rreq.bits.set,  io.rreq.bits.way) }
     }
   }
 
@@ -513,6 +529,7 @@ class RemaperSafeIO extends Bundle {
   val sinkA     = Bool()
   val sinkC     = Bool()
   val sinkX     = Bool()
+  val sourceC   = Bool()
   val sourceD   = Bool()
   val all       = Bool()
 }
@@ -538,7 +555,7 @@ class Remaper(params: InclusiveCacheParameters) extends Module {
   val io = new Bundle {
     val req        = Decoupled(new RemaperReqIO()).flip
     val status     = new RemaperStatusIO(params.setBits)
-    val safe       = new RemaperSafeIO().asInput
+    val idle       = new RemaperSafeIO().asInput
     val config     = new RemaperConfig().asInput
     //RandomTable
     val rtcmd      = Valid(new RandomTableBankCmd()).asOutput
@@ -550,6 +567,8 @@ class Remaper(params: InclusiveCacheParameters) extends Module {
     val deresp     = Valid(new SwaperResp(params)).flip
     //DataBlockSwaper
     val dbreq      = Decoupled(new SwaperReq(params))
+    //pause req
+    val pause      = Bool().asInput
     //X Channel
     val evreq      = Decoupled(new DirectoryRead(params))
     val evresp     = Decoupled(new SourceXRequest(params)).flip
@@ -572,20 +591,21 @@ class Remaper(params: InclusiveCacheParameters) extends Module {
   val s_evict      = RegInit(false.B)
   val s_oneloc     = RegInit(true.B)
   val w_rtab       = RegInit(false.B)
-  val w_rtab_resp  = RegInit(false.B)
   val w_dir        = RegInit(false.B)
-  val w_bs         = RegInit(false.B)
-  val w_evictreq   = RegInit(false.B)
   val w_evictdone  = RegInit(false.B)
 
+  val blocktimes   = RegInit(UInt(0, width = 16))
   val cansafeblock = Reg(new RemaperSafeIO())
   val loc_next     = RegInit(RTAL.LEFT)
   val loc_current  = RegInit(RTAL.RIGH)
   val p_head       = Reg(new SwaperResp(params))
   val p_current    = Reg(new SwaperResp(params))
-  val finish       = RegNext(!s_idle && p_head.set === lastset.U && io.deresp.valid && io.deresp.bits.head && io.deresp.bits.tail)
+  val finish       = RegInit(false.B)
+  val pause_triger = Wire(Bool())
 
+  finish  := !s_idle && !s_pause && s_dir && p_current.set === lastset.U && p_current.nop
   when(finish) {
+     finish      := false.B
      loc_next    := loc_current
      loc_current := loc_next
   }
@@ -593,6 +613,9 @@ class Remaper(params: InclusiveCacheParameters) extends Module {
   val config = Reg(new RemaperConfig())
   when(!s_idle && io.config.en ) { config    := config       }
   when(!s_idle)                  { config.en := io.config.en }
+  config.en := true.B
+  config.max_blockcycles := 0.U
+  pause_triger := config.en && (p_head.set < lastset.U) && (blocktimes > config.max_blockcycles)
 
   //io.req
   when(io.req.fire()) {
@@ -613,23 +636,51 @@ class Remaper(params: InclusiveCacheParameters) extends Module {
   io.status.blockSinkC     := false.B
   io.status.blockSinkX     := false.B
   when(!s_idle) { 
-    when( cansafeblock.sinkA   || io.safe.sinkA   )  {    io.status.blockSinkA   := true.B    }
-    when( cansafeblock.sinkC   || io.safe.sinkC   )  {    io.status.blockSinkC   := true.B    }
-    when( s_evict                                 )  {    io.status.blockSinkC   := false.B   }
-    when( cansafeblock.sinkX   || io.safe.sinkX   )  {    io.status.blockSinkX   := true.B    }
+    when( cansafeblock.sinkA   || io.idle.sinkA                      )  {    io.status.blockSinkA   := true.B    }
+    when( cansafeblock.sinkX   || io.idle.sinkX                      )  {    io.status.blockSinkX   := true.B    }
+    when( cansafeblock.sinkC                                         )  {    io.status.blockSinkC   := true.B    }
+    when( io.idle.sinkC && cansafeblock.sinkA && cansafeblock.sinkX  )  {    io.status.blockSinkC   := true.B    }
+    when( s_evict                                                    )  {    io.status.blockSinkC   := false.B   }
   }
 
-  //io.safe   --->  cansafeblock
+  //io.idle   --->  cansafeblock
   when(s_idle) {
+    blocktimes          := 0.U
     cansafeblock        := new RemaperSafeIO().fromBits(0.U)
   }
   when(!s_idle) {
-    when(io.safe.sinkA)                                                  {   cansafeblock.sinkA     := true.B   }
-    when(io.safe.sinkC)                                                  {   cansafeblock.sinkC     := true.B   }
-    when(s_evict)                                                        {   cansafeblock.sinkC     := false.B  }
-    when(io.safe.sinkX)                                                  {   cansafeblock.sinkX     := true.B   }
-    when(io.safe.all)                                                    {   cansafeblock.all       := true.B   }
-    when(cansafeblock.sinkA && cansafeblock.sinkC && cansafeblock.sinkX) {   cansafeblock.all       := true.B   }
+    when(io.idle.sinkA)                                       {   cansafeblock.sinkA     := true.B   }
+    when(io.idle.sinkX)                                       {   cansafeblock.sinkX     := true.B   }
+    when(io.idle.sinkC)       {
+      when(cansafeblock.sinkA && cansafeblock.sinkX)          {   cansafeblock.sinkC     := true.B   }
+    }
+    when(io.idle.sourceC)     {
+      when(cansafeblock.sinkA && cansafeblock.sinkX)          {   cansafeblock.sourceC   := true.B   }
+    }
+    when(io.idle.sourceD)     {
+      when(cansafeblock.sinkA && cansafeblock.sinkX &&
+           cansafeblock.sinkC && cansafeblock.sourceC)        {   cansafeblock.all       := true.B   }
+    }
+    /*when(io.idle.all)   {
+        cansafeblock.sinkA     := true.B
+        cansafeblock.sinkX     := true.B
+        cansafeblock.sinkC     := true.B
+        cansafeblock.sourceC   := true.B
+        cansafeblock.all       := true.B
+      }*/
+    when(s_evict)          {
+      cansafeblock.sinkC     := false.B
+      cansafeblock.sourceC   := false.B
+    }
+  }
+  when(!s_idle && config.en) {
+    when(pause_triger) {
+      blocktimes          := 0.U
+      cansafeblock        := new RemaperSafeIO().fromBits(0.U)
+    }.elsewhen(!s_1stpause && cansafeblock.all && io.pause)  {
+      blocktimes := blocktimes + 1.U
+      //when(p_head.set > 10.U && p_head.set < (lastset-10).U) { blocktimes := blocktimes + 1.U }
+    }
   }
 
   //io.rtcmd
@@ -638,7 +689,7 @@ class Remaper(params: InclusiveCacheParameters) extends Module {
   io.rtcmd.bits.loc    := loc_current
 
   //io.rtreq
-  io.rtreq.valid       := w_rtab
+  io.rtreq.valid       := w_rtab && !s_pause
   io.rtreq.bits.blkadr := p_current.tag
 
   //io.rtresp
@@ -697,21 +748,23 @@ class Remaper(params: InclusiveCacheParameters) extends Module {
   when(io.evresp.fire())   { w_evictdone   := false.B   }
 
   //state machine
-  when( finish                    )              {   s_idle       := true.B    }
-  when( io.req.fire()             )              {   s_idle       := false.B   }
-  when( io.req.fire()             )              {   s_1stpause   := true.B    }
-  when( io.dereq.fire()           )              {   s_1stpause   := false.B   }
-  when( io.deresp.valid           )              {   s_dir        := true.B    }
-  when( io.dereq.valid || s_idle  )              {   s_dir        := false.B   }
-  when( io.evreq.valid            )              {   s_evict      := true.B    }
-  when( io.evresp.valid           )              {   s_evict      := false.B   }
-  when( finish                    )              {   s_oneloc     := true.B    }
-  when( io.dereq.fire()           )              {   s_oneloc     := false.B   }
+  when( finish                               )              {   s_idle       := true.B    }
+  when( io.req.fire()                        )              {   s_idle       := false.B   }
+  when( io.req.fire()                        )              {   s_1stpause   := true.B    }
+  when( io.dereq.fire()                      )              {   s_1stpause   := false.B   }
+  when( io.deresp.valid                      )              {   s_dir        := true.B    }
+  when( io.dereq.valid || s_idle             )              {   s_dir        := false.B   }
+  when( io.evreq.valid                       )              {   s_evict      := true.B    }
+  when( io.evresp.valid                      )              {   s_evict      := false.B   }
+  when( finish                               )              {   s_oneloc     := true.B    }
+  when( io.dereq.fire()                      )              {   s_oneloc     := false.B   }
+  when( pause_triger                         )              {   s_pause      := true.B    }
+  when( io.req.fire()                        )              {   s_pause      := false.B   }
+  when( s_pause && cansafeblock.all          )              {   s_pause      := false.B   }
+
   when(s_idle | finish) {
     w_rtab       := false.B
     w_dir        := false.B
-    w_bs         := false.B
-    w_evictreq   := false.B
     w_evictdone  := false.B
   }.otherwise {
     when(!w_dir && io.evreq.ready) {
@@ -730,12 +783,13 @@ class Remaper(params: InclusiveCacheParameters) extends Module {
         }
         when(dbreq.io.enq.ready) {
           when((!p_current.tail        || !p_current.evict.valid) && !w_rtab            ) {  w_dir   := true.B   }  //head or swap or tail but don't need evict
-          when( p_current.evict.valid  && !w_evictdone            && cansafeblock.sinkC ) {  w_dir   := true.B   }  //tail need wait evict finish
+          when( p_current.evict.valid  && !w_evictdone            &&
+                cansafeblock.sourceC   && cansafeblock.sinkC      && cansafeblock.all   ) {  w_dir   := true.B   }  //tail need wait evict finish
         }
       }
     }
-    when( io.dereq.fire() || !cansafeblock.all ) {  w_dir := false.B  }
-    when( io.deresp.valid && !(io.deresp.bits.tail && io.deresp.bits.head) ) {
+    when( io.dereq.fire() ) {  w_dir := false.B  }
+    when( io.deresp.valid && !io.deresp.bits.nop ) {
       w_rtab          := true.B
       when(io.deresp.bits.tail)        {  w_rtab        := false.B    }
       when(io.deresp.bits.evict.valid) {  w_evictdone   := true.B     }                 //need evict
@@ -750,6 +804,8 @@ class Remaper(params: InclusiveCacheParameters) extends Module {
   io.pfcupdate.swap      := io.dbreq.fire()
   io.pfcupdate.evict     := io.evreq.fire()
   io.pfcupdate.ebusy     := !s_idle && w_evictdone && io.dereq.ready
+  io.pfcupdate.pause     := !s_idle && (s_pause && RegNext(!s_pause) || io.req.fire())
+  io.pfcupdate.pbusy     := !s_idle && (s_pause || s_1stpause)
   io.pfcupdate.finish    := finish
 
   if(params.remap.enableRemaperLog) {
@@ -759,29 +815,37 @@ class Remaper(params: InclusiveCacheParameters) extends Module {
     val swaps        = RegInit(UInt(0, width = log2Up(blocks)+1))
     val evicts       = RegInit(UInt(0, width = log2Up(blocks)-2))
     val ebusys       = RegInit(UInt(0, width = log2Up(blocks)+4))
+    val pauses       = RegInit(UInt(0, width = 10))
+    val pbusys       = RegInit(UInt(0, width = 20))
 
     when( io.pfcupdate.busy      ) { timer  := timer  + 1.U  }
     when( io.pfcupdate.nop       ) { nops   := nops   + 1.U  }
     when( io.pfcupdate.swap      ) { swaps  := swaps  + 1.U  }
     when( io.pfcupdate.evict     ) { evicts := evicts + 1.U  }
     when( io.pfcupdate.ebusy     ) { ebusys := ebusys + 1.U  }
+    when( io.pfcupdate.pause     ) { pauses := pauses + 1.U  }
+    when( io.pfcupdate.pbusy     ) { pbusys := pbusys + 1.U  }
     when( io.pfcupdate.finish    ) {
       timer   := 0.U
       nops    := 0.U
       swaps   := 0.U
       evicts  := 0.U
       ebusys  := 0.U
+      pauses  := 0.U
+      pbusys  := 0.U
       remaps  := remaps + 1.U
-      printf("remap_%ds: use cycle %d swaps %d evicts %d ebusys %d nops %d\n",remaps, timer, swaps, evicts, ebusys, nops) 
+      printf("remap_%ds: use cycle %d swaps %d evicts %d ebusys %d nops %d pauses %d pbusys %d\n",remaps, timer, swaps, evicts, ebusys, nops, pauses, pbusys)
     }
     val stalltime = RegInit(UInt(0, width = 8))
     stalltime := Mux(s_idle || io.dereq.fire() || io.evreq.fire(), 0.U, stalltime+1.U)
-    assert(stalltime < 200.U)
+    assert(stalltime < 2000.U)
 
+    when(finish)              { assert(!s_pause)            }
     when(finish)              { assert(!io.dereq.valid)     }
     when(io.dereq.valid)      { assert(io.dereq.ready)      }
     when(io.rtreq.valid)      { assert(io.rtreq.ready)      }
     when(dbreq.io.enq.valid)  { assert(dbreq.io.enq.ready)  }
     when(io.dereq.valid && !io.dereq.bits.head)      { assert(io.rtresp.valid || !w_rtab) }
+    when(cansafeblock.all && cansafeblock.sinkC)     { assert(io.idle.sourceD)            }
   }
 }

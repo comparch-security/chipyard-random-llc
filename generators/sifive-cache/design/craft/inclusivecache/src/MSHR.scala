@@ -307,7 +307,7 @@ class MSHR(params: InclusiveCacheParameters) extends Module
                                          BtoT -> Mux(honour_BtoT,  BtoT, NtoT),
                                          NtoT -> NtoT)))
   io.schedule.bits.d.bits.sink    := UInt(0)
-  io.schedule.bits.d.bits.swz     := Bool(false) //meta.swz
+  io.schedule.bits.d.bits.swz     := meta.swz
   io.schedule.bits.d.bits.way     := meta.way
   io.schedule.bits.d.bits.bad     := bad_grant
   io.schedule.bits.e.bits.sink    := sink
@@ -591,7 +591,7 @@ class MSHR(params: InclusiveCacheParameters) extends Module
       when (isToN(new_request.param) && (new_meta.clients & new_clientBit) =/= UInt(0)) {
         s_writeback := Bool(false)
       }
-      when(!new_meta.hit) { printf("release not hit tag %x set %d\n", request.tag, request.set) }
+      when(!new_meta.hit) { printf("release not hit tag %x set %x\n", request.tag, request.set) }
       assert (new_meta.hit)
     }
     // For X channel requests (ie: flush)

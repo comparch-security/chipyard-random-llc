@@ -93,7 +93,7 @@ class Directory(params: InclusiveCacheParameters) extends Module
   val wipeDone = wipeCount(params.setBits)
   val wipeSet = wipeCount(params.setBits - 1,0)
 
-  io.ready := wipeDone
+  io.ready := wipeDone && !swaper.io.busy
   when (!wipeDone && !wipeOff) { wipeCount := wipeCount + UInt(1) }
   assert (wipeDone || !io.read.valid)
 
@@ -184,6 +184,7 @@ class Directory(params: InclusiveCacheParameters) extends Module
       io.result.bits.state    := regswaperresult.state
       io.result.bits.clients  := regswaperresult.clients
       io.result.bits.tag      := regswaperresult.tag
+      io.result.bits.way      := 0.U
     }
   }
 
@@ -195,6 +196,6 @@ class Directory(params: InclusiveCacheParameters) extends Module
   if(true) {
     val timers  = RegInit(UInt(0, width = 32))
     timers := timers+1.U
-    when(io.write.fire() && io.write.bits.data.state =/= INVALID) { printf("clk %d tag %x set %x\n",timers, io.write.bits.data.tag, io.write.bits.set)}
+    when(io.write.fire() && io.write.bits.data.state =/= INVALID) { printf("clk %d tag %x set %x swz %d\n",timers, io.write.bits.data.tag, io.write.bits.set, io.write.bits.swz)}
   }
 }

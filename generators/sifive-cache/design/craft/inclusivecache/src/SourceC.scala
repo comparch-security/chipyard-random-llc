@@ -43,6 +43,8 @@ class SourceC(params: InclusiveCacheParameters) extends Module
     // RaW hazard
     val evict_req = new SourceDHazard(params)
     val evict_safe = Bool().flip
+    //for use by rempaer
+    val idle     = Bool()
   }
 
   // We ignore the depth and pipe is useless here (we have to provision for worst-case=stall)
@@ -121,4 +123,6 @@ class SourceC(params: InclusiveCacheParameters) extends Module
 
   queue.io.enq <> c
   io.c <> queue.io.deq
+
+  io.idle := !io.bs_adr.valid && !s2_valid && !s3_valid && io.req.ready
 }
