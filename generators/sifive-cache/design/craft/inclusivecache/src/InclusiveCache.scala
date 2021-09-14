@@ -183,14 +183,22 @@ class InclusiveCache(
       when (ivalid ) { remaperConfigR :=  new RemaperConfig().fromBits(data) }
       (true.B, true.B)
     }), RegFieldDesc("Remaper", "Config"))
-    when(reset) { remaperConfigR.en := false.B }
+    when(reset) {
+     remaperConfigR.max_blockcycles    := 0.U
+     remaperConfigR.en                 := true.B //lowest bit
+   }
 
     val attackDetectorConfigR = Reg(new AttackDetectorConfig())
     val attackDetectorConfig  = RegField.w(64, RegWriteFn((ivalid, oready, data) => {
       when (ivalid ) { attackDetectorConfigR :=  new AttackDetectorConfig().fromBits(data) }
       (true.B, true.B)
     }), RegFieldDesc("AttackDetector", "Config"))
-    when(reset) { attackDetectorConfigR.en := false.B }
+    when(reset) {
+      attackDetectorConfigR.max_access      := 2.U //3 access per block
+      attackDetectorConfigR.en_access       := true.B
+      attackDetectorConfigR.max_evicts      := 9.U //10 evicts per block
+      attackDetectorConfigR.en_evicts       := true.B //lowest bit
+    }
 
     val regmap = ctlnode.map { c =>
       c.regmap(

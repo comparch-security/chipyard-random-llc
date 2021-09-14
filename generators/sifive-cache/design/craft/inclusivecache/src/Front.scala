@@ -76,13 +76,13 @@ class FSinkX(params: InclusiveCacheParameters) extends Module
   rhset.io.enq.bits         := io.rtab.resp.bits.rhset
 
   //to BackendSinkX
-  io.back.valid         := io.rx.valid | (!s_idle & (lhset.io.deq.valid | rhset.io.deq.valid))
-  io.back.bits.source   := Mux(!s_idle, Mux(lhset.io.deq.valid & rhset.io.deq.valid, 2.U,               1.U              ),  0.U          )
-  io.diradr.bits.set    := Mux(!s_idle, Mux(lhset.io.deq.valid,                      lhset.io.deq.bits, rhset.io.deq.bits), io.rx.bits.set)
-  io.diradr.bits.tag    := Mux(!s_idle, blkadrR                                                                           , io.rx.bits.tag)
-  lhset.io.deq.ready    := io.back.ready
-  rhset.io.deq.ready    := io.back.ready & !lhset.io.deq.valid
-  io.rx.ready           := s_idle && io.back.ready
+  io.back.valid         := io.rx.valid || lhset.io.deq.valid || rhset.io.deq.valid
+  io.back.bits.source   := Mux(io.rx.valid, 0.U           , Mux(lhset.io.deq.valid && rhset.io.deq.valid, 2.U,               1.U              ))
+  io.diradr.bits.set    := Mux(io.rx.valid, io.rx.bits.set, Mux(lhset.io.deq.valid,                       lhset.io.deq.bits, rhset.io.deq.bits))
+  io.diradr.bits.tag    := Mux(io.rx.valid, io.rx.bits.tag,                                                                            blkadrR )
+  lhset.io.deq.ready    := !io.rx.valid && io.back.ready
+  rhset.io.deq.ready    := !io.rx.valid && io.back.ready && !lhset.io.deq.valid
+  io.rx.ready           := io.back.ready
 
   //when frontendX or backendX is busy we can not remap safely
   io.idle  := s_idle
@@ -148,8 +148,8 @@ class FSink[T <: TLAddrChannel](val gen: T, params: InclusiveCacheParameters) ex
   diradr_arb.io.in(0).bits.set := Mux(io.rstatus.cloc === RTAL.LEFT, io.rtab.resp.bits.lhset, io.rtab.resp.bits.rhset)
   diradr_arb.io.in(1).valid    := io.front.valid && camMatch
   diradr_arb.io.in(1).bits.set := cam.bits.set
-  diradr_arb.io.in(2).valid    := RegNext(io.rtab.resp.valid & swapped)
-  diradr_arb.io.in(2).bits.set := RegEnable(Mux(io.rstatus.nloc === RTAL.LEFT, io.rtab.resp.bits.lhset, io.rtab.resp.bits.rhset), io.rtab.resp.valid)
+  diradr_arb.io.in(2).valid    := io.rtab.resp.valid && swapped
+  diradr_arb.io.in(2).bits.set := Mux(io.rstatus.nloc === RTAL.LEFT, io.rtab.resp.bits.lhset, io.rtab.resp.bits.rhset)
   diradr_arb.io.in(3).valid    := io.b_result.valid
   diradr_arb.io.in(3).bits.set := io.b_result.bits.set
   diradr_arb.io.in(4).valid    := io.dir_result.valid
@@ -210,7 +210,7 @@ class FSink[T <: TLAddrChannel](val gen: T, params: InclusiveCacheParameters) ex
   when( io.rtab.resp.valid && !io.rstatus.oneloc && !io.b_result.valid && !swapped )  { w_reqdir    := true.B   } //if this set match sourceB or has been swapped we do not need read dir
   when( io.dir_read.fire()                                                         )  { w_reqdir    := false.B  }
   when( io.b_result.valid                                                          )  { w_truehset  := false.B  } //get true hset ahead reqdir
-  when( RegNext(io.rtab.resp.valid & swapped)                                      )  { w_truehset  := false.B  } //get true hset ahead reqdir
+  when( io.rtab.resp.valid && swapped                                              )  { w_truehset  := false.B  } //get true hset ahead reqdir
   when( io.dir_result.valid                                                        )  { w_truehset  := false.B  }
 
   io.idle  := !front.io.deq.valid & !w_truehset

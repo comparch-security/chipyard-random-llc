@@ -448,8 +448,9 @@ class Scheduler(params: InclusiveCacheParameters) extends Module
 
     //attack detector
     remaper.io.req   <> attackdetector.io.remap
-    attackdetector.io.config      := io.config.attackdetector
-    attackdetector.io.evict.valid := io.in.a.fire()
+    attackdetector.io.config       := io.config.attackdetector
+    attackdetector.io.access.valid := io.pfcupdate.itlink.a_Done
+    attackdetector.io.evict.valid  := io.pfcupdate.otlink.c_Done
 
     //ASSERT
     assert(!(directory.io.write.fire() && directory.io.write.bits.data.state  =/= MetaData.INVALID && remaper.io.status.oneloc && directory.io.write.bits.data.loc  =/= remaper.io.status.cloc))

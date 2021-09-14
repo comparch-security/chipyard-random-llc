@@ -36,8 +36,8 @@ class SinkX(params: InclusiveCacheParameters) extends Module
     val idle    = Bool()                                              //can remap safely
   }
 
-  val x = Queue(io.x, 1)
-  val diradr = Queue(io.diradr, 1)
+  val x = Queue(io.x, 2)
+  val diradr = Queue(io.diradr, 2)
   val (tag, set, offset) = if(params.remap.en) (diradr.bits.tag, diradr.bits.set, 0.U) else params.parseAddress(x.bits.address)
 
   x.ready      := io.req.ready

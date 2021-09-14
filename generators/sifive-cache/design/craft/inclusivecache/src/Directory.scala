@@ -104,9 +104,9 @@ class Directory(params: InclusiveCacheParameters) extends Module
 
   require (codeBits <= 256)
 
-  write.ready := !io.read.valid
+  write.ready := !io.read.valid || write.bits.swz
   if(params.remap.en) {
-    swaper.io.write.valid  := !ren && wen && write.bits.swz
+    swaper.io.write.valid  := write.valid && write.bits.swz
     swaper.io.write.bits   := write.bits
     swaper.io.iwrite.ready := true.B
     when ((!ren && ((!wipeDone && !wipeOff) || (write.valid && !write.bits.swz))) || swaper.io.iwrite.valid) {
@@ -124,13 +124,12 @@ class Directory(params: InclusiveCacheParameters) extends Module
     }
   }
 
-
   val ren1 = RegInit(Bool(false))
   val ren2 = if (params.micro.dirReg) RegInit(Bool(false)) else ren1
   ren2 := ren1
   ren1 := ren
 
-  val bypass_valid = params.dirReg(write.valid)
+  val bypass_valid = params.dirReg(write.valid && !write.bits.swz)
   val bypass = params.dirReg(write.bits, ren1 && write.valid)
   val regout = if(params.remap.en) {
     params.dirReg({

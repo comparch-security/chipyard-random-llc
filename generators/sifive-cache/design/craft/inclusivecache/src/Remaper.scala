@@ -291,8 +291,8 @@ class DirectoryEntrySwaper(params: InclusiveCacheParameters) extends Module
 
   //swap_entry: read and write for MSHR
   //io.read
-  io.result.valid         := RegNext(io.read.valid & swap_entry.data.state =/= INVALID & io.read.bits.tag === swap_entry.data.tag)
-  io.result.bits          := RegNext(swap_entry.data)
+  io.result.valid         := RegNext(io.read.valid && Mux(io.write.valid, io.write.bits.data.state =/= INVALID && io.read.bits.tag === io.write.bits.data.tag, swap_entry.data.state =/= INVALID && io.read.bits.tag === swap_entry.data.tag))
+  io.result.bits          := swap_entry.data
   io.result.bits.swz      := true.B
   io.result.bits.hit      := io.result.valid
   io.result.bits.way      := 0.U
@@ -300,7 +300,7 @@ class DirectoryEntrySwaper(params: InclusiveCacheParameters) extends Module
   when( io.write.valid & io.write.bits.swz )   { swap_entry := io.write.bits }
   //io.busy
 
-  io.busy                 := io.rreq.valid || RegNext(io.rreq.valid || !s_idle || RegNext(!s_idle))
+  io.busy                 := io.rreq.valid || RegNext(io.rreq.valid || !s_idle)
 
   //io.rreq:   receive cmd from remaper
   io.rreq.ready           := s_idle & io.iread.ready
@@ -537,7 +537,7 @@ class RemaperSafeIO extends Bundle {
 class RemaperStatusIO(val setw: Int) extends Bundle {
   val cloc   = UInt(width = RTAL.SZ)  //current location
   val nloc   = UInt(width = RTAL.SZ)  //next location
-  val head   = UInt(width = RTAL.SZ)  //next location
+  val head   = UInt(width = setw)  //next location
   val oneloc = Bool()
   val evict  = Bool()
 
@@ -611,11 +611,8 @@ class Remaper(params: InclusiveCacheParameters) extends Module {
   }
 
   val config = Reg(new RemaperConfig())
-  when(!s_idle && io.config.en ) { config    := config       }
-  when(!s_idle)                  { config.en := io.config.en }
-  config.en := true.B
-  config.max_blockcycles := 0.U
-  pause_triger := config.en && (p_head.set < lastset.U) && (blocktimes > config.max_blockcycles)
+  when(!s_idle)                  { config    := io.config       }
+  pause_triger := !s_idle && !s_evict && !io.dereq.valid && !io.deresp.bits.evict.valid && config.en && (p_head.set < lastset.U) && (blocktimes > config.max_blockcycles)
 
   //io.req
   when(io.req.fire()) {
@@ -632,6 +629,7 @@ class Remaper(params: InclusiveCacheParameters) extends Module {
   io.status.nloc           := loc_next
   io.status.head           := p_head.set
   io.status.oneloc         := s_oneloc
+  io.status.evict          := s_evict
   io.status.blockSinkA     := false.B
   io.status.blockSinkC     := false.B
   io.status.blockSinkX     := false.B
@@ -661,23 +659,17 @@ class Remaper(params: InclusiveCacheParameters) extends Module {
       when(cansafeblock.sinkA && cansafeblock.sinkX &&
            cansafeblock.sinkC && cansafeblock.sourceC)        {   cansafeblock.all       := true.B   }
     }
-    /*when(io.idle.all)   {
-        cansafeblock.sinkA     := true.B
-        cansafeblock.sinkX     := true.B
-        cansafeblock.sinkC     := true.B
-        cansafeblock.sourceC   := true.B
-        cansafeblock.all       := true.B
-      }*/
     when(s_evict)          {
       cansafeblock.sinkC     := false.B
       cansafeblock.sourceC   := false.B
+      cansafeblock.all       := false.B
     }
   }
   when(!s_idle && config.en) {
     when(pause_triger) {
       blocktimes          := 0.U
       cansafeblock        := new RemaperSafeIO().fromBits(0.U)
-    }.elsewhen(!s_1stpause && cansafeblock.all && io.pause)  {
+    }.elsewhen(!s_1stpause && cansafeblock.all && io.pause && io.dereq.fire())  {
       blocktimes := blocktimes + 1.U
       //when(p_head.set > 10.U && p_head.set < (lastset-10).U) { blocktimes := blocktimes + 1.U }
     }
@@ -698,7 +690,7 @@ class Remaper(params: InclusiveCacheParameters) extends Module {
   }
 
   //io.dereq
-  io.dereq.valid      := w_dir
+  io.dereq.valid      := w_dir && !s_pause
   io.dereq.bits.set   := Mux(io.rtresp.valid, Mux(loc_next === RTAL.RIGH, io.rtresp.bits.rhset, io.rtresp.bits.lhset), Mux(p_head.head, p_head.set, p_current.set))
   io.dereq.bits.way   := 0.U
   io.dereq.bits.cloc  := loc_current
@@ -783,8 +775,7 @@ class Remaper(params: InclusiveCacheParameters) extends Module {
         }
         when(dbreq.io.enq.ready) {
           when((!p_current.tail        || !p_current.evict.valid) && !w_rtab            ) {  w_dir   := true.B   }  //head or swap or tail but don't need evict
-          when( p_current.evict.valid  && !w_evictdone            &&
-                cansafeblock.sourceC   && cansafeblock.sinkC      && cansafeblock.all   ) {  w_dir   := true.B   }  //tail need wait evict finish
+          when( p_current.evict.valid  && !w_evictdone            && cansafeblock.all   ) {  w_dir   := true.B   }  //tail need wait evict finish
         }
       }
     }
@@ -836,7 +827,7 @@ class Remaper(params: InclusiveCacheParameters) extends Module {
       remaps  := remaps + 1.U
       printf("remap_%ds: use cycle %d swaps %d evicts %d ebusys %d nops %d pauses %d pbusys %d\n",remaps, timer, swaps, evicts, ebusys, nops, pauses, pbusys)
     }
-    val stalltime = RegInit(UInt(0, width = 8))
+    val stalltime = RegInit(UInt(0, width = 12))
     stalltime := Mux(s_idle || io.dereq.fire() || io.evreq.fire(), 0.U, stalltime+1.U)
     assert(stalltime < 2000.U)
 
@@ -846,6 +837,8 @@ class Remaper(params: InclusiveCacheParameters) extends Module {
     when(io.rtreq.valid)      { assert(io.rtreq.ready)      }
     when(dbreq.io.enq.valid)  { assert(dbreq.io.enq.ready)  }
     when(io.dereq.valid && !io.dereq.bits.head)      { assert(io.rtresp.valid || !w_rtab) }
-    when(cansafeblock.all && cansafeblock.sinkC)     { assert(io.idle.sourceD)            }
+    when(cansafeblock.all)                           { assert(io.idle.mshr)               }
+    when(cansafeblock.all)                           { assert(io.idle.sourceC)            }
+    when(cansafeblock.all)                           { assert(io.idle.sourceD)            }
   }
 }

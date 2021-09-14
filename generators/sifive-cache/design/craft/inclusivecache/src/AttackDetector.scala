@@ -22,7 +22,10 @@ import freechips.rocketchip.tilelink._
 import freechips.rocketchip.util._
 
 class AttackDetectorConfig extends Bundle {
-  val en              = Bool() //lowest bit
+  val max_access      = UInt(width = 15)  //max_access per block
+  val en_access       = Bool()
+  val max_evicts      = UInt(width = 7)   //max_evicts per block
+  val en_evicts       = Bool() //lowest bit
 }
 
 class AttackDetector(params: InclusiveCacheParameters) extends Module
@@ -31,16 +34,22 @@ class AttackDetector(params: InclusiveCacheParameters) extends Module
     val config   = new AttackDetectorConfig().asInput
     val remap    = Decoupled(new RemaperReqIO())
     val evict    = Valid(new DirectoryRead(params)).flip
+    val access   = Valid(new DirectoryRead(params)).flip
   }
 
-  val count = RegInit(UInt(1, width = 30))
-  val doremap = count > (2 * params.cache.sets * params.cache.ways).U
-  io.remap.valid := doremap
-  when(!doremap && io.evict.valid && io.remap.ready) { count := count + 1.U }
-  when(io.remap.fire()) { count := 0.U }
+  val ways     = params.cache.ways
+  val sets     = params.cache.sets
+  val blocks   = sets*ways
 
-  val config = Reg(new AttackDetectorConfig())
-  when(io.config.en) { config := config }
-  config.en := io.config.en
+  val config = io.config
+
+  val count_access = RegInit(UInt(0, width = 32))
+  val count_evicts = RegInit(UInt(0, width = 32))
+  val doremap = count_access > Cat(config.max_access, (blocks - 1).U) || count_evicts > Cat(config.max_evicts, (blocks - 1).U)
+  io.remap.valid := doremap
+  when(!doremap && io.access.valid && io.remap.ready) { count_access := count_access + 1.U }
+  when(!doremap && io.evict.valid  && io.remap.ready) { count_evicts := count_evicts + 1.U }
+  when(io.remap.fire() || !config.en_access) { count_access := 0.U }
+  when(io.remap.fire() || !config.en_evicts) { count_evicts := 0.U }
 
 }

@@ -131,7 +131,7 @@ void get_pfc_testall(void) {
 
   kprintln("\nPFC: L1D SET WRITE_BACK");
   for(i=0, pfccsr.raddall=0; i<(PFC_DSETS>>6); i++) {
-    get_pfc_test(PFC_TILE0_MANAGER,   PFC_L1DSWB_RPAGE,   i,     &pfccsr);
+    get_pfc_test(PFC_TILE0_MANAGER,   PFC_L1DSEV_RPAGE,   i,     &pfccsr);
   }
   kprintln("error %ld - %ld = %ld", pfccsr.raddall, cpfccsr.r[33], pfccsr.raddall - cpfccsr.r[33]); 
 
@@ -153,7 +153,7 @@ void get_pfc_testall(void) {
 
   kprintln("PFC: L2 SET WRITE_BACK");
   for(i=0, pfccsr.raddall=0; i<(PFC_L2SETS>>6); i++) {
-    get_pfc_test(PFC_L2BANK0_MANAGER, PFC_L2SWB_RPAGE,    i,     &pfccsr);
+    get_pfc_test(PFC_L2BANK0_MANAGER, PFC_L2SEV_RPAGE,    i,     &pfccsr);
   }
   kprintln("error %ld - %ld = %ld", pfccsr.raddall, l2olpfccsr.r[30], pfccsr.raddall - l2olpfccsr.r[30]);
 

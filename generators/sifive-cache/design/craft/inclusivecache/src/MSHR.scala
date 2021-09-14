@@ -223,7 +223,7 @@ class MSHR(params: InclusiveCacheParameters) extends Module
   val meta_no_clients = !meta.clients.orR
   val req_promoteT = req_acquire && Mux(meta.hit, meta_no_clients && meta.state === TIP, gotT)
 
-  final_meta_writeback.loc := Mux(io.rstatus.oneloc, io.rstatus.cloc, meta.loc)
+  final_meta_writeback.loc := Mux(io.rstatus.oneloc, io.rstatus.cloc, Mux(meta.state === INVALID, io.rstatus.nloc, meta.loc))
   when (request.prio(2) && Bool(!params.firstLevel)) { // always a hit
     final_meta_writeback.dirty   := meta.dirty || request.opcode(0)
     final_meta_writeback.state   := Mux(request.param =/= TtoT && meta.state === TRUNK, TIP, meta.state)
