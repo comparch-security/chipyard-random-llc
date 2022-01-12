@@ -194,9 +194,9 @@ class InclusiveCache(
       (true.B, true.B)
     }), RegFieldDesc("AttackDetector", "Config"))
     when(reset) {
-      attackDetectorConfigR.max_access      := 2.U //3 access per block
+      attackDetectorConfigR.max_access      := 0.U //3 access per block
       attackDetectorConfigR.en_access       := true.B
-      attackDetectorConfigR.max_evicts      := 9.U //10 evicts per block
+      attackDetectorConfigR.max_evicts      := 0.U //10 evicts per block
       attackDetectorConfigR.en_evicts       := true.B //lowest bit
     }
 

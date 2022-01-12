@@ -25,16 +25,28 @@ class FSourceX(params: InclusiveCacheParameters) extends Module
 {
   val io = new Bundle {
     val front  = Decoupled(new SourceXRequest(params)).flip
-    val back   = Decoupled(new SourceXRequest(params))        //to Source X
+    val back   = Decoupled(new SourceXRequest(params))      //to Source X
     //for use by rempaer
-    val rx       = Decoupled(new SourceXRequest(params))  //Remaper SourceXResp
+    val rx     = Valid(new SourceXRequest(params))          //Remaper SourceXResp
   }
 
-  io.back.valid   := io.front.valid & io.front.bits.source === 1.U
-  io.rx.valid     := io.front.valid & io.front.bits.source === 0.U
-  io.back.bits    := io.front.bits
+  val twice  = RegInit(false.B) //when remap flush twice use both hset
+  val back   = Module(new Queue(io.back.bits, 2))
+
+  //io.front => back
+  back.io.enq.valid   := io.front.valid && (io.front.bits.source === 1.U || (twice && io.front.bits.source === 2.U))
+  back.io.enq.bits    := io.front.bits
+  io.front.ready      := back.io.enq.ready
+  when(io.front.fire() && io.front.bits.source === 2.U)  { twice := true.B  }
+  //back => io.back
+  io.back.valid       := back.io.deq.valid && back.io.deq.bits.source =/= 0.U
+  io.back.bits        := back.io.deq.bits
+  back.io.deq.ready   := io.back.ready
+  when(io.back.fire())  { twice := false.B }
+
+  //io.front => io.rx
+  io.rx.valid     := io.front.fire() && io.front.bits.source === 0.U
   io.rx.bits      := io.front.bits
-  io.front.ready  := Mux(io.front.bits.source === 0.U, io.rx.ready, io.back.ready) | io.front.bits.source === 2.U
 
   params.ccover(io.front.valid && !io.front.ready, "SOURCEX_STALL", "Backpressure when sending a control message")
 }
@@ -45,6 +57,7 @@ class FSinkX(params: InclusiveCacheParameters) extends Module
     val front    = Decoupled(new SinkXRequest(params)).flip
     val back     = Decoupled(new SinkXRequest(params))      //BackendX
     val diradr   = Decoupled(new DirectoryRead(params))
+    val fldone   = Bool().asInput                           //flush done
     //for use by rempaer
     val rx       = Decoupled(new DirectoryRead(params)).flip //remaper x
     val rstatus  = new RemaperStatusIO(params.setBits).asInput  //Remaper Status
@@ -56,6 +69,7 @@ class FSinkX(params: InclusiveCacheParameters) extends Module
   val (tag, set, offset) = params.parseAddress(io.front.bits.address)
   val blkadr  = Cat(tag, set)
   val s_idle  = RegInit(true.B)
+  val twice   = RegInit(false.B) //when remap flush twice with both hset
 
   val blkadrR = Reg(UInt(width = params.blkadrBits))
   val lhset   = Module(new Queue(UInt(width = params.setBits), 1))
@@ -70,24 +84,26 @@ class FSinkX(params: InclusiveCacheParameters) extends Module
   params.ccover(io.front.valid && !s_idle, "SINKX_STALL", "Backpressure when accepting a control message")
 
   //rtab      --->  hset
-  lhset.io.enq.valid        := io.rtab.resp.valid && (!io.rstatus.oneloc || io.rstatus.cloc === RTAL.LEFT)
-  rhset.io.enq.valid        := io.rtab.resp.valid && (!io.rstatus.oneloc || io.rstatus.cloc === RTAL.RIGH)
+  lhset.io.enq.valid        := io.rtab.resp.valid && Mux(io.rstatus.oneloc, io.rstatus.cloc === RTAL.LEFT, !(io.rstatus.cloc === RTAL.LEFT && io.rtab.resp.bits.lhset < io.rstatus.head))
+  rhset.io.enq.valid        := io.rtab.resp.valid && Mux(io.rstatus.oneloc, io.rstatus.cloc === RTAL.RIGH, !(io.rstatus.cloc === RTAL.RIGH && io.rtab.resp.bits.rhset < io.rstatus.head))
   lhset.io.enq.bits         := io.rtab.resp.bits.lhset
   rhset.io.enq.bits         := io.rtab.resp.bits.rhset
+  when(lhset.io.enq.valid || rhset.io.enq.valid) { twice := false.B  }
+  when(lhset.io.enq.valid && rhset.io.enq.valid) { twice := true.B   }
 
   //to BackendSinkX
   io.back.valid         := io.rx.valid || lhset.io.deq.valid || rhset.io.deq.valid
-  io.back.bits.source   := Mux(io.rx.valid, 0.U           , Mux(lhset.io.deq.valid && rhset.io.deq.valid, 2.U,               1.U              ))
-  io.diradr.bits.set    := Mux(io.rx.valid, io.rx.bits.set, Mux(lhset.io.deq.valid,                       lhset.io.deq.bits, rhset.io.deq.bits))
-  io.diradr.bits.tag    := Mux(io.rx.valid, io.rx.bits.tag,                                                                            blkadrR )
+  io.back.bits.source   := Mux(io.rx.valid, 0.U           , Mux(twice, 2.U,               1.U))
+  io.diradr.bits.set    := Mux(io.rx.valid, io.rx.bits.set, Mux(lhset.io.deq.valid,       lhset.io.deq.bits, rhset.io.deq.bits))
+  io.diradr.bits.tag    := Mux(io.rx.valid, io.rx.bits.tag, blkadrR)
   lhset.io.deq.ready    := !io.rx.valid && io.back.ready
   rhset.io.deq.ready    := !io.rx.valid && io.back.ready && !lhset.io.deq.valid
   io.rx.ready           := io.back.ready
 
   //when frontendX or backendX is busy we can not remap safely
   io.idle  := s_idle
-  when(io.front.fire())                                                 {  s_idle := false.B  }
-  when(io.diradr.fire() & (lhset.io.deq.valid ^ rhset.io.deq.valid))    {  s_idle := true.B   }
+  when(io.front.fire())      {  s_idle := false.B  }
+  when(io.fldone)            {  s_idle := true.B   }
 
 }
 
@@ -102,121 +118,85 @@ class FSink[T <: TLAddrChannel](val gen: T, params: InclusiveCacheParameters) ex
     val rstatus    = new RemaperStatusIO(params.setBits).asInput  //Remaper Status
     val rtab       = new SourceSinkRandomTableIO(params.blkadrBits, params.setBits)
     val idle       = Bool() //can remap safely
-    val b_read     = Valid((new DirectoryRead(params)))           //check SourceB
-    val b_result   = Valid(new SourceBRequest(params)).flip
     val dir_read   = Decoupled(new DirectoryRead(params))
     val dir_result = Valid(new DirectoryResult(params)).asInput
   }
 
-  io.diradr.valid := io.back.valid
-  val front          =  Module(new Queue(io.front.bits.cloneType,     2))
-  val diradr         =  Module(new Queue(io.diradr.bits.cloneType,    2))
-  val diradr_arb     =  Module(new Arbiter(io.diradr.bits.cloneType,  5))
+  val back           =  Module(new Queue(io.front.bits.cloneType,     1, pipe = false, flow = true ))
+  val diradr         =  Module(new Queue(io.diradr.bits.cloneType,    1, pipe = false, flow = true ))
+  val dir_read       =  Module(new Queue(io.dir_read.bits.cloneType,  1, pipe = false, flow = true ))
+  val diradr_arb     =  Module(new Arbiter(io.diradr.bits.cloneType,  3))
 
   val block          = Wire(Bool())    //block front req
   val blkadr         = Wire(UInt())
-  //(w_ = waiting)
-  val w_reqrtab      = RegInit(false.B)
-  val w_reqdir       = RegInit(false.B)
-  val w_truehset     = RegInit(false.B)
+  val stall          = RegInit(false.B)
 
-  val cam            = Reg(Valid(new DirectoryRead(params)))
   val dir_tag        = Reg(UInt(width = params.blkadrBits))
-  val lhset          = Reg(UInt(width = params.setBits))
-  val rhset          = Reg(UInt(width = params.setBits))
-  val swapped        = Wire(init = (!io.rstatus.oneloc && ((io.rstatus.cloc === RTAL.LEFT && io.rtab.resp.bits.lhset < io.rstatus.head) || (io.rstatus.cloc === RTAL.RIGH && io.rtab.resp.bits.rhset < io.rstatus.head))))
-  val camMatch       = Wire(Bool())
+  val oldset         = Reg(UInt(width = params.setBits))
+  val newset         = Reg(UInt(width = params.setBits))
+  val swapped        = Wire(init = ((io.rstatus.cloc === RTAL.LEFT && io.rtab.resp.bits.lhset < io.rstatus.head) || (io.rstatus.cloc === RTAL.RIGH && io.rtab.resp.bits.rhset < io.rstatus.head)))
+  val needSet        = Wire(Bool())
 
   io.front.bits match {
     case a: TLBundleA => {
-      val (tag, set, offset) = params.parseAddress(a.address)
-      camMatch               := false.B
+      val (tag, set, _)       = params.parseAddress(a.address)
+      needSet                := true.B
       block                  := io.rstatus.blockSinkA
       blkadr                 := Cat(tag, set)
     }
     case c: TLBundleC => {
-      val (tag, set, offset) = params.parseAddress(c.address)
-      //camMatch               := false.B
-      camMatch               := cam.valid & cam.bits.tag === blkadr
+      val (tag, set, _)       = params.parseAddress(c.address)
+      val (first, _, _, _)    = params.inner.count(c, io.front.fire())
+      needSet                := first && !(c.opcode === TLMessages.ProbeAck || c.opcode === TLMessages.ProbeAckData)
       block                  := io.rstatus.blockSinkC      
       blkadr                 := Cat(tag, set)
     }
     case _  => require(false)
   }
 
-  diradr_arb.io.in(0).valid    := io.rtab.resp.valid && io.rstatus.oneloc && (diradr.io.deq.valid || !io.back.ready)
-  diradr_arb.io.in(0).bits.set := Mux(io.rstatus.cloc === RTAL.LEFT, io.rtab.resp.bits.lhset, io.rtab.resp.bits.rhset)
-  diradr_arb.io.in(1).valid    := io.front.valid && camMatch
-  diradr_arb.io.in(1).bits.set := cam.bits.set
-  diradr_arb.io.in(2).valid    := io.rtab.resp.valid && swapped
-  diradr_arb.io.in(2).bits.set := Mux(io.rstatus.nloc === RTAL.LEFT, io.rtab.resp.bits.lhset, io.rtab.resp.bits.rhset)
-  diradr_arb.io.in(3).valid    := io.b_result.valid
-  diradr_arb.io.in(3).bits.set := io.b_result.bits.set
-  diradr_arb.io.in(4).valid    := io.dir_result.valid
-  diradr_arb.io.in(4).bits.set := Mux(io.dir_result.bits.hit && !io.dir_result.bits.swz, RegNext(io.dir_read.bits.set), Mux(io.rstatus.nloc === RTAL.LEFT, lhset, rhset))
-
-  //io.front      --->  front
-  front.io.enq.valid           :=  io.front.valid     && ((io.rstatus.oneloc && !block && io.rtab.req.ready) || diradr_arb.io.in(1).valid || diradr_arb.io.in(2).valid || diradr_arb.io.in(3).valid || diradr_arb.io.in(4).valid)
-  front.io.enq.bits            :=  io.front.bits
-  io.front.ready               :=  front.io.enq.ready && ((io.rstatus.oneloc && !block && io.rtab.req.ready) || diradr_arb.io.in(1).valid || diradr_arb.io.in(2).valid || diradr_arb.io.in(3).valid || diradr_arb.io.in(4).valid)
-  //diradr_arb    --->  diradr
-  diradr.io.enq.bits           :=  diradr_arb.io.out.bits
-  diradr.io.enq.valid          := (diradr_arb.io.in(1).valid && front.io.enq.ready) || diradr_arb.io.in(0).valid || diradr_arb.io.in(2).valid || diradr_arb.io.in(3).valid || diradr_arb.io.in(4).valid
-
-  //to Backend
-  io.back <> front.io.deq
-  io.diradr.bits.set           := Mux(diradr.io.deq.valid, diradr.io.deq.bits.set, Mux(io.rstatus.cloc === RTAL.LEFT, io.rtab.resp.bits.lhset, io.rtab.resp.bits.rhset))
-  diradr.io.deq.ready          := front.io.deq.ready
-
-  //w_reqrtab
-  io.rtab.req.valid            := !camMatch & !block & Mux(io.rstatus.oneloc, io.front.valid & front.io.enq.ready, w_reqrtab)
+  //rtab
+  io.rtab.req.valid            := io.front.valid && needSet && !block && !stall
   io.rtab.req.bits.blkadr      := blkadr
-  //check SourceB: the same cycle with req rtab
-  io.b_read.valid              := io.rtab.req.fire() & !io.rstatus.oneloc
-  io.b_read.bits.tag           := io.rtab.req.bits.blkadr 
-  //w_resptab
   when(io.rtab.resp.valid) {
-    lhset                      := io.rtab.resp.bits.lhset
-    rhset                      := io.rtab.resp.bits.rhset
+    oldset                     := Mux(io.rstatus.cloc === RTAL.LEFT, io.rtab.resp.bits.lhset, io.rtab.resp.bits.rhset)
+    newset                     := Mux(io.rstatus.nloc === RTAL.LEFT, io.rtab.resp.bits.lhset, io.rtab.resp.bits.rhset)
   }
 
-  //w_reqdir
-  io.dir_read.valid            := w_reqdir
-  io.dir_read.bits.tag         := dir_tag
-  io.dir_read.bits.set         := RegEnable(Mux(io.rstatus.cloc === RTAL.LEFT, io.rtab.resp.bits.lhset, io.rtab.resp.bits.rhset), io.rtab.resp.valid)
+  //dir_read
+  dir_read.io.enq.valid        := io.rtab.resp.valid && !io.rstatus.oneloc && !swapped
+  dir_read.io.enq.bits.tag     := blkadr
+  dir_read.io.enq.bits.set     := Mux(io.rstatus.cloc === RTAL.LEFT, io.rtab.resp.bits.lhset, io.rtab.resp.bits.rhset)
+  io.dir_read.valid            := dir_read.io.deq.valid
+  io.dir_read.bits             := dir_read.io.deq.bits
+  dir_read.io.deq.ready        := io.dir_read.ready
 
-  //cam
-  when(reset | (block ^ RegNext(block))) { cam.valid := false.B }
- /*when(io.rstatus.oneloc && io.rtab.resp.valid) {
-    cam.valid                := true.B 
-    cam.bits.tag             := RegNext(io.rtab.req.bits.blkadr)
-    cam.bits.set             := Mux(io.rstatus.cloc === RTAL.LEFT, io.rtab.resp.bits.lhset, io.rtab.resp.bits.rhset)
-  }*/
-  Seq(diradr_arb.io.in(2), diradr_arb.io.in(3), diradr_arb.io.in(4)).map( arb => {
-    when(arb.valid) {
-      cam.valid                := true.B 
-      cam.bits.tag             := blkadr
-      cam.bits.set             := arb.bits.set
-    }
-  })
+  when( io.rtab.req.fire()  )  { stall   := true.B    }
+  when( io.back.fire()      )  { stall   := false.B   }
 
-  //state machine
-  when(io.front.valid && front.io.enq.ready && !block && !camMatch && !w_truehset && !io.rstatus.oneloc) {
-    dir_tag                   := blkadr
-    w_reqrtab                 := true.B
-    w_truehset                := true.B
-  }
-  when( io.rtab.req.fire()                                                         )  { w_reqrtab   := false.B  }
-  when( io.rtab.resp.valid && !io.rstatus.oneloc && !io.b_result.valid && !swapped )  { w_reqdir    := true.B   } //if this set match sourceB or has been swapped we do not need read dir
-  when( io.dir_read.fire()                                                         )  { w_reqdir    := false.B  }
-  when( io.b_result.valid                                                          )  { w_truehset  := false.B  } //get true hset ahead reqdir
-  when( io.rtab.resp.valid && swapped                                              )  { w_truehset  := false.B  } //get true hset ahead reqdir
-  when( io.dir_result.valid                                                        )  { w_truehset  := false.B  }
+  diradr_arb.io.in(0).valid    := RegNext(io.dir_result.valid)
+  diradr_arb.io.in(0).bits.set := RegEnable(Mux(io.dir_result.bits.hit, oldset, newset), io.dir_result.valid)
+  diradr_arb.io.in(1).valid    := io.rtab.resp.valid && (io.rstatus.oneloc || swapped)
+  diradr_arb.io.in(1).bits.set := Mux(Mux(io.rstatus.oneloc, io.rstatus.cloc === RTAL.LEFT, io.rstatus.nloc === RTAL.LEFT), io.rtab.resp.bits.lhset, io.rtab.resp.bits.rhset)
+  diradr_arb.io.in(2).valid    := io.front.valid && !block && !needSet
+  diradr_arb.io.in(2).bits.set := diradr_arb.io.in(1).bits.set
 
-  io.idle  := !front.io.deq.valid & !w_truehset
+  //io.front      --->  back
+  back.io.enq.valid            :=  io.front.valid    && diradr_arb.io.out.valid
+  back.io.enq.bits             :=  io.front.bits
+  io.front.ready               :=  back.io.enq.ready && diradr_arb.io.out.valid
+  //diradr_arb    --->  diradr
+  diradr.io.enq.valid          :=  diradr_arb.io.out.valid
+  diradr.io.enq.bits           :=  diradr_arb.io.out.bits
+  //back          ---> io.back
+  io.back <> back.io.deq
+  io.diradr.valid              := back.io.deq.valid
+  io.diradr.bits.set           := diradr.io.deq.bits.set
+  diradr.io.deq.ready          := back.io.deq.ready
+
+  io.idle  := !stall
 
   //ASSERT  
   when(io.back.valid) {
-    assert(diradr.io.deq.valid || (io.rstatus.oneloc && io.rtab.resp.valid))
+    assert(!back.io.enq.valid || back.io.enq.ready)
   }
 }

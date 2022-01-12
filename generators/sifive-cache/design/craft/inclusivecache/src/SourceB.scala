@@ -27,6 +27,7 @@ class SourceBRequest(params: InclusiveCacheParameters) extends InclusiveCacheBun
   val tag     = UInt(width = if(params.remap.en) params.blkadrBits else params.tagBits)
   val set     = UInt(width = params.setBits)
   val clients = UInt(width = params.clientBits)
+  val sink    = UInt(width = params.inner.bundle.sinkBits)
 }
 
 class SourceB(params: InclusiveCacheParameters) extends Module
@@ -72,11 +73,13 @@ class SourceB(params: InclusiveCacheParameters) extends Module
     val set = (if(params.remap.en) Mux(!busy, io.req.bits.tag(params.setBits-1,                 0), RegEnable(io.req.bits.tag(params.setBits-1,                 0), io.req.fire()))
                else                Mux(!busy, io.req.bits.set,                                      RegEnable(io.req.bits.set,                                      io.req.fire())))
     val param = Mux(!busy, io.req.bits.param, RegEnable(io.req.bits.param, io.req.fire()))
+    val sink  = Mux(!busy, io.req.bits.sink,  RegEnable(io.req.bits.sink,  io.req.fire()))
 
     b.bits.opcode  := TLMessages.Probe
     b.bits.param   := param
     b.bits.size    := UInt(params.offsetBits)
     b.bits.source  := params.clientSource(next)
+    b.bits.sink    := sink
     b.bits.address := params.expandAddress(tag, set, UInt(0))
     b.bits.mask    := ~UInt(0, width = params.inner.manager.beatBytes)
     b.bits.data    := UInt(0)

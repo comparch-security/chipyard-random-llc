@@ -46,7 +46,6 @@ class MSHRStatus(params: InclusiveCacheParameters) extends InclusiveCacheBundle(
   val nestB  = Bool()
   val blockC = Bool()
   val nestC  = Bool()
-  val b      = Valid(new SourceBRequest(params))
 }
 
 class NestedWriteback(params: InclusiveCacheParameters) extends InclusiveCacheBundle(params)
@@ -176,8 +175,6 @@ class MSHR(params: InclusiveCacheParameters) extends Module
   // The w_grantfirst in nestC is necessary to deal with:
   //   acquire waiting for grant, inner release gets queued, outer probe -> inner probe -> deadlock
   // ... this is possible because the release+probe can be for same set, but different tag
-  io.status.bits.b      := RegEnable(io.schedule.bits.b, io.schedule.bits.b.valid || no_wait)
-  //SinkC can get hset from SourceB status
 
   // We can only demand: block, nest, or queue
   assert (!io.status.bits.nestB || !io.status.bits.blockB)

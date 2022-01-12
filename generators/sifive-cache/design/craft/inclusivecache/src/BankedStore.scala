@@ -137,8 +137,8 @@ class BankedStore(params: InclusiveCacheParameters) extends Module
     val out = Wire(new Request)
 
     val select = UIntToOH(a(bankBits-1, 0), numBanks/ports)
-    val ready  = Cat(Seq.tabulate(numBanks/ports) { i => !(out.bankSum((i+1)*ports-1, i*ports) & m).orR } .reverse)
-    b.ready := ready(a(bankBits-1, 0)) & !swaper.io.busy
+    val ready  = Cat(Seq.tabulate(numBanks/ports) { i => !(out.bankSum((i+1)*ports-1, i*ports) & m).orR & !swaper.io.busy} .reverse)
+    b.ready := ready(a(bankBits-1, 0))
 
     out.wen      := write
     out.swz      := b.bits.swz

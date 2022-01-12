@@ -44,6 +44,7 @@ class WritebackReq(params: TLBundleParameters)(implicit p: Parameters) extends L
   val tag = Bits(width = tagBits)
   val idx = Bits(width = idxBits)
   val source = UInt(width = params.sourceBits)
+  val sink   = UInt(width = params.sinkBits)
   val param = UInt(width = TLPermissions.cWidth) 
   val way_en = Bits(width = nWays)
   val voluntary = Bool()
@@ -177,7 +178,8 @@ class MSHR(id: Int)(implicit edge: TLEdgeOut, p: Parameters) extends L1HellaCach
     new_coh.onSecondaryAccess(req.cmd, io.req_bits.cmd)
 
   val states_before_refill = Seq(s_wb_req, s_wb_resp, s_meta_clear)
-  val (_, _, refill_done, refill_address_inc) = edge.addr_inc(io.mem_grant)
+  val (_, _, grant_done, refill_address_inc) = edge.addr_inc(io.mem_grant)
+  val refill_done = grant_done && edge.isRequest(io.mem_grant.bits)
   val sec_rdy = idx_match &&
                   (state.isOneOf(states_before_refill) ||
                     (state.isOneOf(s_refill_req, s_refill_resp) &&
@@ -188,13 +190,14 @@ class MSHR(id: Int)(implicit edge: TLEdgeOut, p: Parameters) extends L1HellaCach
   rpq.io.enq.bits := io.req_bits
   rpq.io.deq.ready := (io.replay.ready && state === s_drain_rpq) || state === s_invalid
 
+  val needwb = Reg(Bool())
   val acked = Reg(Bool())
-  when (io.mem_grant.valid) { acked := true }
+  when (io.mem_grant.valid && !edge.isRequest(io.mem_grant.bits)) { acked := true } //writeback resp from l2
 
   when (state === s_drain_rpq && !rpq.io.deq.valid) {
     state := s_invalid
   }
-  when (state === s_meta_write_resp) {
+  when (state === s_meta_write_resp && (!needwb || acked)) {
     // this wait state allows us to catch RAW hazards on the tags via nack_victim
     state := s_drain_rpq
   }
@@ -211,7 +214,7 @@ class MSHR(id: Int)(implicit edge: TLEdgeOut, p: Parameters) extends L1HellaCach
   when (state === s_meta_clear && io.meta_write.ready) {
     state := s_refill_req
   }
-  when (state === s_wb_resp && io.wb_req.ready && acked) {
+  when (state === s_wb_resp && io.wb_req.ready) { //must wait acked ?
     state := s_meta_clear
   }
   when (io.wb_req.fire()) { // s_wb_req
@@ -228,10 +231,11 @@ class MSHR(id: Int)(implicit edge: TLEdgeOut, p: Parameters) extends L1HellaCach
   }
   when (io.req_pri_val && io.req_pri_rdy) {
     req := io.req_bits
-    acked := false
+    acked := true
     val old_coh = io.req_bits.old_meta.coh
     val needs_wb = old_coh.onCacheControl(M_FLUSH)._1
     val (is_hit, _, coh_on_hit) = old_coh.onAccess(io.req_bits.cmd)
+    needwb := needs_wb
     when (io.req_bits.tag_match) {
       when (is_hit) { // set dirty bit
         new_coh := coh_on_hit
@@ -264,7 +268,7 @@ class MSHR(id: Int)(implicit edge: TLEdgeOut, p: Parameters) extends L1HellaCach
   val meta_hazard = Reg(init=UInt(0,2))
   when (meta_hazard =/= UInt(0)) { meta_hazard := meta_hazard + 1 }
   when (io.meta_write.fire()) { meta_hazard := 1 }
-  io.probe_rdy := !idx_match || (!state.isOneOf(states_before_refill) && meta_hazard === 0) 
+  io.probe_rdy := !idx_match || (!state.isOneOf(states_before_refill) && (!needwb || acked) && meta_hazard === 0) 
 
   io.meta_write.valid := state.isOneOf(s_meta_write_req, s_meta_clear)
   io.meta_write.bits.idx := req_idx
@@ -502,6 +506,7 @@ class WritebackUnit(implicit edge: TLEdgeOut, p: Parameters) extends L1HellaCach
   val r_address = Cat(req.tag, req.idx) << blockOffBits
   val probeResponse = edge.ProbeAck(
                           fromSource = req.source,
+                          toSink     = req.sink,
                           toAddress = r_address,
                           lgSize = lgCacheBlockBytes,
                           reportPermissions = req.param,
@@ -564,6 +569,7 @@ class ProbeUnit(implicit edge: TLEdgeOut, p: Parameters) extends L1HellaCacheMod
 
   io.wb_req.valid := state === s_writeback_req
   io.wb_req.bits.source := req.source
+  io.wb_req.bits.sink   := req.sink
   io.wb_req.bits.idx := req_idx
   io.wb_req.bits.tag := req_tag
   io.wb_req.bits.param := report_param

@@ -64,6 +64,7 @@ class BoomWritebackUnit(implicit edge: TLEdgeOut, p: Parameters) extends L1Hella
   val id = cfg.nMSHRs
   val probeResponse = edge.ProbeAck(
                           fromSource = id.U,
+                          toSink     = req.sink,
                           toAddress = r_address,
                           lgSize = lgCacheBlockBytes.U,
                           reportPermissions = req.param,
@@ -197,6 +198,7 @@ class BoomProbeUnit(implicit edge: TLEdgeOut, p: Parameters) extends L1HellaCach
 
   io.wb_req.valid := state === s_writeback_req
   io.wb_req.bits.source := req.source
+  io.wb_req.bits.sink   := req.sink
   io.wb_req.bits.idx := req_idx
   io.wb_req.bits.tag := req_tag
   io.wb_req.bits.param := report_param

@@ -71,6 +71,7 @@ class Scheduler(params: InclusiveCacheParameters) extends Module
   val sinkE = Module(new SinkE(params))
   val sinkX = Module(new SinkX(params))
 
+  sinkC.io.c <> io.in.c
   sinkE.io.e <> io.in.e
   sinkD.io.d <> io.out.d
 
@@ -90,7 +91,7 @@ class Scheduler(params: InclusiveCacheParameters) extends Module
 
   // Deliver messages from Sinks to MSHRs
   mshrs.zipWithIndex.foreach { case (m, i) =>
-    m.io.sinkc.valid := sinkC.io.resp.valid && sinkC.io.resp.bits.set === m.io.status.bits.set
+    m.io.sinkc.valid := sinkC.io.resp.valid && sinkC.io.resp.bits.sink   === UInt(i)
     m.io.sinkd.valid := sinkD.io.resp.valid && sinkD.io.resp.bits.source === UInt(i)
     m.io.sinke.valid := sinkE.io.resp.valid && sinkE.io.resp.bits.sink   === UInt(i)
     m.io.sinkc.bits := sinkC.io.resp.bits
@@ -137,12 +138,14 @@ class Scheduler(params: InclusiveCacheParameters) extends Module
   val schedule = Mux1H(mshr_selectOH, mshrs.map(_.io.schedule.bits))
   val scheduleTag = Mux1H(mshr_selectOH, mshrs.map(_.io.status.bits.tag))
   val scheduleSet = Mux1H(mshr_selectOH, mshrs.map(_.io.status.bits.set))
+  val scheduleSwz = Mux1H(mshr_selectOH, mshrs.map(_.io.status.bits.swz))
 
   // When an MSHR wins the schedule, it has lowest priority next time
   when (mshr_request.orR()) { robin_filter := ~rightOR(mshr_selectOH) }
 
   // Fill in which MSHR sends the request
   schedule.a.bits.source := mshr_select
+  schedule.b.bits.sink   := mshr_select
   schedule.c.bits.source := Mux(schedule.c.bits.opcode(1), mshr_select, UInt(0)) // only set for Release[Data] not ProbeAck[Data]
   schedule.d.bits.sink   := mshr_select
 
@@ -236,7 +239,7 @@ class Scheduler(params: InclusiveCacheParameters) extends Module
     val will_reload = m.io.schedule.bits.reload && (may_pop || bypass)
     m.io.allocate.bits := Mux(bypass, Wire(new QueuedRequest(params), init = request.bits), requests.io.data)
     m.io.allocate.bits.set := m.io.status.bits.set
-    m.io.allocate.bits.repeat := m.io.allocate.bits.tag === m.io.status.bits.tag
+    m.io.allocate.bits.repeat := m.io.allocate.bits.tag === m.io.status.bits.tag && !m.io.status.bits.swz
     m.io.allocate.valid := sel && will_reload
   }
 
@@ -247,10 +250,10 @@ class Scheduler(params: InclusiveCacheParameters) extends Module
   requests.io.pop.bits  := pop_index
 
   // Reload from the Directory if the next MSHR operation changes tags
-  val lb_tag_mismatch = scheduleTag =/= requests.io.data.tag
+  val lb_tag_mismatch = scheduleTag =/= requests.io.data.tag || scheduleSwz
   val mshr_uses_directory_assuming_no_bypass = schedule.reload && may_pop && lb_tag_mismatch
   val mshr_uses_directory_for_lb = will_pop && lb_tag_mismatch
-  val mshr_uses_directory = will_reload && scheduleTag =/= Mux(bypass, request.bits.tag, requests.io.data.tag)
+  val mshr_uses_directory = will_reload && (scheduleTag =/= Mux(bypass, request.bits.tag, requests.io.data.tag) || scheduleSwz)
 
   // Is there an MSHR free for this request?
   val mshr_validOH = Cat(mshrs.map(_.io.status.valid).reverse)
@@ -315,18 +318,11 @@ class Scheduler(params: InclusiveCacheParameters) extends Module
   }
 
   // MSHR response meta-data fetch
-  sinkC.io.way :=
-    Mux(bc_mshr.io.status.valid && bc_mshr.io.status.bits.set === sinkC.io.set,
-      bc_mshr.io.status.bits.way,
-      Mux1H(abc_mshrs.map(m => m.io.status.valid && m.io.status.bits.set === sinkC.io.set),
-            abc_mshrs.map(_.io.status.bits.way)))
-  sinkC.io.swz :=
-    Mux(bc_mshr.io.status.valid && bc_mshr.io.status.bits.set === sinkC.io.set,
-      bc_mshr.io.status.bits.swz,
-      Mux1H(abc_mshrs.map(m => m.io.status.valid && m.io.status.bits.set === sinkC.io.set),
-            abc_mshrs.map(_.io.status.bits.swz)))
-  sinkD.io.way := Vec(mshrs.map(_.io.status.bits.way))(sinkD.io.source)
+  sinkC.io.set := Vec(mshrs.map(_.io.status.bits.set))(sinkC.io.sink)
+  sinkC.io.way := Vec(mshrs.map(_.io.status.bits.way))(sinkC.io.sink)
+  sinkC.io.swz := Vec(mshrs.map(_.io.status.bits.swz))(sinkC.io.sink)
   sinkD.io.set := Vec(mshrs.map(_.io.status.bits.set))(sinkD.io.source)
+  sinkD.io.way := Vec(mshrs.map(_.io.status.bits.way))(sinkD.io.source)
   sinkD.io.swz := Vec(mshrs.map(_.io.status.bits.swz))(sinkD.io.source)
 
   // Beat buffer connections between components
@@ -354,26 +350,25 @@ class Scheduler(params: InclusiveCacheParameters) extends Module
   sinkD  .io.grant_safe := sourceD.io.grant_safe
 
   if(params.remap.en) {
-    val fsinkA                = Module(new FSink(io.in.a.bits.cloneType, params))
-    val fsinkC                = Module(new FSink(io.in.c.bits.cloneType, params))
     val fsinkX                = Module(new FSinkX(params))
+    val fsinkA                = Module(new FSink(io.in.a.bits.cloneType, params))
     val fsourceX              = Module(new FSourceX(params))
     val dir_arb               = Module(new Arbiter(new DirectoryRead(params),  2))
     val idle                  = Wire(new RemaperSafeIO())
-    val stall_fsinkA_dir      = Cat(mshrs.map { m => m.io.status.valid && m.io.status.bits.set === fsinkA.io.dir_read.bits.set }.reverse).orR() || !requests.io.empty || !sinkA.io.idle
+    val stall_fsinkA_dir      = Cat(mshrs.map { m => m.io.status.valid && (m.io.status.bits.set === fsinkA.io.dir_read.bits.set || m.io.status.bits.swz) }.reverse).orR() || sinkX.io.req.valid || sinkX.io.x.valid
 
     //req from inner
-    fsinkA.io.front    <> io.in.a      ;     sinkA.io.a      <> fsinkA.io.back    //io.in.a    -->   fsinkA    --> sinkA
-    fsinkC.io.front    <> io.in.c      ;     sinkC.io.c      <> fsinkC.io.back    //io.in.c    -->   fsinkC    --> sinkC
     fsinkX.io.front    <> io.req       ;     sinkX.io.x      <> fsinkX.io.back    //io.req     -->   fsinkX    --> sinkX
+    fsinkA.io.front    <> io.in.a      ;     sinkA.io.a      <> fsinkA.io.back    //io.in.a    -->   fsinkA    --> sinkA
 
     //resp to inner
     fsourceX.io.front  := schedule.x   ;     sourceX.io.req  <> fsourceX.io.back  //schedule.x -->  fsourceX   --> sourceX
+    fsinkX.io.fldone   := fsourceX.io.back.fire()
 
     //remaper status
-    fsinkA.io.rstatus   := remaper.io.status
-    fsinkC.io.rstatus   := remaper.io.status
+    sinkC.io.rstatus    := remaper.io.status
     fsinkX.io.rstatus   := remaper.io.status
+    fsinkA.io.rstatus   := remaper.io.status
     mshrs.map { _.io.rstatus := remaper.io.status }
 
     //randomtable
@@ -384,37 +379,24 @@ class Scheduler(params: InclusiveCacheParameters) extends Module
     remaper.io.rtreadys   := randomtable.io.readys
     randomtable.io.cmd    := remaper.io.rtcmd
     randomtable.io.mix    := Cat(mix_c, mix_d)
-    randomtable.io.req(0) <> remaper.io.rtreq      ; remaper.io.rtresp     := randomtable.io.resp(0) ;
+    randomtable.io.req(0) <>  sinkC.io.rtab.req    ;  sinkC.io.rtab.resp   := randomtable.io.resp(0) ;                                      //sinkC   -->  randomtable  --> sinkC
     randomtable.io.req(1) <> fsinkX.io.rtab.req    ; fsinkX.io.rtab.resp   := randomtable.io.resp(1) ; sinkX.io.diradr <> fsinkX.io.diradr  //fsinkX  -->  randomtable  --> sinkX
-    randomtable.io.req(2) <> fsinkC.io.rtab.req    ; fsinkC.io.rtab.resp   := randomtable.io.resp(2) ; sinkC.io.diradr <> fsinkC.io.diradr  //fsinkC  -->  randomtable  --> sinkC
-    randomtable.io.req(3) <> fsinkA.io.rtab.req    ; fsinkA.io.rtab.resp   := randomtable.io.resp(3) ; sinkA.io.diradr <> fsinkA.io.diradr  //fsinkA  -->  randomtable  --> sinkA
+    randomtable.io.req(2) <> fsinkA.io.rtab.req    ; fsinkA.io.rtab.resp   := randomtable.io.resp(2) ; sinkA.io.diradr <> fsinkA.io.diradr  //fsinkA  -->  randomtable  --> sinkA
+    randomtable.io.req(3) <> remaper.io.rtreq      ; remaper.io.rtresp     := randomtable.io.resp(3) ;
 
-    //fsink get true hset from SourceB
-    //Seq(fsinkC, fsinkA).map( fsink => {
-    Seq(fsinkC).map( fsink => {
-      val (req_valid, req_addr) = (fsink.io.b_read.valid, fsink.io.b_read.bits.tag)
-      fsink.io.b_result.valid     := RegNext(Cat(mshrs.map { m => m.io.status.bits.b.valid && req_valid && m.io.status.bits.b.bits.tag === req_addr }.reverse).orR())
-      fsink.io.b_result.bits.set  := {
-        val b_set   = Reg(UInt(width = params.setBits))
-        mshrs.map { case m => {
-          when(m.io.status.bits.b.valid && req_addr === m.io.status.bits.b.bits.tag) { b_set := m.io.status.bits.b.bits.set }
-        }}
-      b_set
-      }
-    })
     //fsink read directory to get true hset
-    dir_arb.io.out.ready := !(mshr_uses_directory || alloc_uses_directory) && directory.io.ready
+    dir_arb.io.out.ready := !(mshr_uses_directory || alloc_uses_directory) && directory.io.ready //&& !directory.io.write.valid
     when(!(mshr_uses_directory || alloc_uses_directory)) {
       directory.io.read.valid   := dir_arb.io.out.valid
       directory.io.read.bits    := dir_arb.io.out.bits
     }
-    dir_arb.io.in(0)           <> fsinkC.io.dir_read
+    dir_arb.io.in(0)           <>  sinkC.io.dir_read
     dir_arb.io.in(1).valid     := !stall_fsinkA_dir & fsinkA.io.dir_read.valid
     dir_arb.io.in(1).bits      := fsinkA.io.dir_read.bits
     fsinkA.io.dir_read.ready   := !stall_fsinkA_dir & dir_arb.io.in(1).ready
-    fsinkC.io.dir_result.valid := params.dirReg(RegNext(fsinkC.io.dir_read.fire())) //  val directoryFanout = params.dirReg(RegNext(Mux(mshr_uses_directory, mshr_selectOH, Mux(alloc_uses_directory, dirTarget, UInt(0)))))
+    sinkC.io.dir_result.valid  := params.dirReg(RegNext( sinkC.io.dir_read.fire())) //  val directoryFanout = params.dirReg(RegNext(Mux(mshr_uses_directory, mshr_selectOH, Mux(alloc_uses_directory, dirTarget, UInt(0)))))
     fsinkA.io.dir_result.valid := params.dirReg(RegNext(fsinkA.io.dir_read.fire())) //  val directoryFanout = params.dirReg(RegNext(Mux(mshr_uses_directory, mshr_selectOH, Mux(alloc_uses_directory, dirTarget, UInt(0)))))
-    fsinkC.io.dir_result.bits  := directory.io.result.bits
+    sinkC.io.dir_result.bits   := directory.io.result.bits
     fsinkA.io.dir_result.bits  := directory.io.result.bits
 
     //remap cache
@@ -425,23 +407,14 @@ class Scheduler(params: InclusiveCacheParameters) extends Module
     //swap datablock
     bankedStore.io.rreq <>  remaper.io.dbreq                                                  //remaper  ---> bankedStore
 
-    //remaper safe
-    idle.mshr                := !request.valid     && requests.io.empty && Cat(mshrs.map { !_.io.status.valid }.reverse).andR()
-    idle.sinkA               := !io.in.a.valid     && fsinkA.io.idle   && sinkA.io.idle
-    idle.sinkC               := !io.in.c.valid     && fsinkC.io.idle   && sinkC.io.idle
-    idle.sinkX               := !io.req.valid      && fsinkX.io.idle   && sinkX.io.idle
-    idle.sourceC             := !schedule.c.valid  && sourceC.io.idle
-    idle.sourceD             := !schedule.d.valid  && sourceD.io.idle
-    remaper.io.idle.mshr     := RegNext(idle.mshr)
-    remaper.io.idle.sinkA    := RegNext(idle.mshr && idle.sinkA)
-    remaper.io.idle.sinkC    := RegNext(idle.mshr && idle.sinkC)
-    remaper.io.idle.sinkX    := RegNext(idle.mshr && idle.sinkX)
-    remaper.io.idle.sourceC  := RegNext(idle.mshr && idle.sourceC)
-    remaper.io.idle.sourceD  := RegNext(idle.mshr && idle.sourceD)
-    remaper.io.idle.all      := RegNext(idle.mshr && idle.sinkA && idle.sinkX && idle.sinkC && idle.sourceC && idle.sourceD)
-
-    //remaper pause req
-    remaper.io.pause  := io.in.a.valid || io.in.c.valid
+    //remaper scheduler status
+    remaper.io.schreq    := io.in.a.valid      || io.in.c.valid      ||  io.req.valid      ||
+                            sinkA.io.req.valid || sinkC.io.req.valid ||  sinkC.io.busy     ||  sinkX.io.req.valid ||
+                            !requests.io.empty
+    remaper.io.schresp   := RegNext(!sourceD.io.idle || schedule.d.valid)
+    remaper.io.mshrbusy  := Cat(mshrs.map { m => m.io.status.valid   }.reverse).orR()
+    remaper.io.mshralloc := Cat(mshrs.map { m => m.io.allocate.valid }.reverse).orR()
+    remaper.io.mshrmatch := Cat(mshrs.map { m => m.io.status.valid && (m.io.status.bits.swz || m.io.status.bits.set === remaper.io.status.sset) }.reverse).orR()
 
     //remaper config
     remaper.io.config := io.config.remaper

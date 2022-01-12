@@ -43,13 +43,16 @@ class AttackDetector(params: InclusiveCacheParameters) extends Module
 
   val config = io.config
 
+  val atdetec  = RegInit(false.B)
+  io.remap.bits.atdetec := atdetec
+
   val count_access = RegInit(UInt(0, width = 32))
   val count_evicts = RegInit(UInt(0, width = 32))
-  val doremap = count_access > Cat(config.max_access, (blocks - 1).U) || count_evicts > Cat(config.max_evicts, (blocks - 1).U)
+  //val doremap = count_access > Cat(config.max_access, (blocks - 1).U) || count_evicts > Cat(config.max_evicts, (blocks - 1).U)
+  val doremap = count_access > 512.U //blocks.U
   io.remap.valid := doremap
   when(!doremap && io.access.valid && io.remap.ready) { count_access := count_access + 1.U }
   when(!doremap && io.evict.valid  && io.remap.ready) { count_evicts := count_evicts + 1.U }
-  when(io.remap.fire() || !config.en_access) { count_access := 0.U }
+  //when(io.remap.fire() || !config.en_access) { count_access := 0.U }
   when(io.remap.fire() || !config.en_evicts) { count_evicts := 0.U }
-
 }

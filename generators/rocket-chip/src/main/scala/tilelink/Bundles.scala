@@ -193,6 +193,7 @@ final class TLBundleB(params: TLBundleParameters)
   val param   = UInt(width = TLPermissions.bdWidth) // cap perms
   val size    = UInt(width = params.sizeBits)
   val source  = UInt(width = params.sourceBits) // to
+  val sink    = UInt(width = params.sinkBits)    // from
   val address = UInt(width = params.addressBits) // from
   // variable fields during multibeat:
   val mask    = UInt(width = params.dataBits/8)
@@ -209,6 +210,7 @@ final class TLBundleC(params: TLBundleParameters)
   val param   = UInt(width = TLPermissions.cWidth) // shrink or report perms
   val size    = UInt(width = params.sizeBits)
   val source  = UInt(width = params.sourceBits) // from
+  val sink    = UInt(width = params.sinkBits)    // to
   val address = UInt(width = params.addressBits) // to
   val user    = BundleMap(params.requestFields)
   val echo    = BundleMap(params.echoFields)

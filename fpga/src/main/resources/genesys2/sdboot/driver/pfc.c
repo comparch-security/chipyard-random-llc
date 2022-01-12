@@ -2,27 +2,27 @@
 #include <platform.h>
 #include "pfc.h"
 
-inline void write_pfcc(uint64_t data) {
+inline static void write_pfcc(uint64_t data) {
   asm volatile ("csrw 0x8e0, %0" :: "r"(data));
 }
 
-inline void write_pfcm(uint64_t data) {
+inline static void write_pfcm(uint64_t data) {
   asm volatile ("csrw 0x8e1, %0" :: "r"(data));
 }
 
-inline uint64_t read_pfcc(void) {
+inline static uint64_t read_pfcc(void) {
   uint64_t data;
   asm volatile ("csrr %0, 0x8e0" : "=r"(data));
   return data;
 }
 
-inline uint64_t read_pfcm(void) {
+inline static uint64_t read_pfcm(void) {
   uint64_t data;
   asm volatile ("csrr %0, 0x8e1" : "=r"(data));
   return data;
 }
 
-inline uint64_t read_pfcr(void) {
+inline static uint64_t read_pfcr(void) {
   uint64_t data;
   asm volatile ("csrr %0, 0xce0" : "=r"(data));
   return data;
@@ -38,19 +38,14 @@ uint8_t bitmap_one(uint64_t bitmap) {
 }
 
 void bitmap_order(pfccsr_t* pfccsr) {
-  uint64_t recnum = pfccsr->rnum;
-  uint64_t bitmap = pfccsr->c;
-  uint8_t hpos;
-  uint8_t i1, i2;
-  if(bitmap == 0) return;
-
-  for(hpos = 255; bitmap; hpos++) { bitmap = bitmap >> 1; }
-  if(hpos == (recnum-1)) return;
-
-  for(i1 = hpos, i2 = recnum-1; i1 > i2; i1--) { 
-     if((bitmap >> i1) & 0x01) { pfccsr->r[i1] = pfccsr->r[i2--]; }
+  uint8_t i1=0, i2=pfccsr->rnum -1;
+  for(; (pfccsr->m >> i1); i1++) { }
+  for(i1--; i1 > i2; i1--) {
+     if((pfccsr->m >> i1) & 0x01) {
+       pfccsr->r[i1]   = pfccsr->r[i2];
+       pfccsr->r[i2--] = 0;
+    }
   }
-
 }
 
 uint8_t get_pfc(uint8_t managerid, uint8_t rpage, uint64_t bitmap, pfccsr_t* pfccsr) {
@@ -60,7 +55,7 @@ uint8_t get_pfc(uint8_t managerid, uint8_t rpage, uint64_t bitmap, pfccsr_t* pfc
   pfccsr->c    = (managerid << PFC_C_MANAGERID) + ((rpage & PFC_C_RPAGE_MASK) << PFC_C_PAGE) + 1;
   write_pfcm(bitmap);
   write_pfcc(pfccsr->c);          //after trigger and receive we must read prcr within 32 instructions retired
-  for(recnum  = 0, timeout = 0, ramtype = rpage >> PFC_C_PAGE_LEN; timeout < 10; ) {
+  for(recnum  = 0, timeout = 0, ramtype = (rpage >> PFC_C_PAGE_LEN) & 0x01; timeout < 10; ) {
     pfccsr->c  = read_pfcc();
     if(pfccsr->c & PFC_C_EMPTY_BIT) { timeout ++; } 
     else {
@@ -74,12 +69,12 @@ uint8_t get_pfc(uint8_t managerid, uint8_t rpage, uint64_t bitmap, pfccsr_t* pfc
   }
   pfccsr->c  = read_pfcc();
   pfccsr->m  = read_pfcm();
+  pfccsr->rnum = recnum;
   if(pfccsr->c & PFC_C_TIMEOUT_BIT  )  { return PFC_ERR_TIMEOUT;    } //hardware time out
   if(pfccsr->c & PFC_C_READERROR_BIT)  { return PFC_ERR_READ;       }
   if(pfccsr->c & PFC_C_INTERRUPT_BIT)  { return PFC_ERR_INTERRUPT;  }
   if(ramtype)  { pfccsr->ramaddr = bitmap;  }
   if(!ramtype) { bitmap_order(pfccsr);      }
-  pfccsr->rnum = recnum;
   return recnum;
 }
 /*
@@ -238,8 +233,14 @@ char TLEVENTG_NAME[49][22] = {
   "e_Err1             "   //event48
 };
 
-char L2EVENTG0_NAME[16][16] = {
+char L2EVENTG0_NAME[16][22] = {
     //acquire chancel
-  "event0      ",  //event0
-  "event1      "
+  "r_Finish          ",  //event0
+  "r_nop             ",  //event1
+  "r_busy            ",  //event2
+  "r_swap            ",  //event3
+  "r_evcit           ",  //event4
+  "r_ebusy           ",  //event5
+  "r_pause           ",  //event6
+  "r_atdetec         "   //event7
 };

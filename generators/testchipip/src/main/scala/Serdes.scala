@@ -226,6 +226,7 @@ class TLMergedBundle(params: TLBundleParameters, hasCorruptDenied: Boolean = tru
     TLPermissions.aWidth, TLPermissions.bdWidth, TLPermissions.cWidth).max.W)
   val size = UInt(params.sizeBits.W)
   val source = UInt(params.sourceBits.W)
+  val sink   = UInt(params.sinkBits.W)
   val address = UInt(params.addressBits.W)
   val data = UInt(params.dataBits.W)
   val corrupt = if(hasCorruptDenied) Some(Bool()) else None
@@ -259,6 +260,7 @@ object TLMergedBundle {
     merged.size    := a.size
     merged.source  := a.source
     merged.address := a.address
+    merged.sink    := 0.U
     merged.data    := a.data
     if(hasCorruptDenied)
       merged.corrupt.get := a.corrupt
@@ -276,6 +278,7 @@ object TLMergedBundle {
     merged.param   := b.param
     merged.size    := b.size
     merged.source  := b.source
+    merged.sink    := b.sink
     merged.address := b.address
     merged.data    := b.data
     if(hasCorruptDenied)
@@ -294,6 +297,7 @@ object TLMergedBundle {
     merged.param   := c.param
     merged.size    := c.size
     merged.source  := c.source
+    merged.sink    := c.sink
     merged.address := c.address
     merged.data    := c.data
     if(hasCorruptDenied) {
@@ -315,6 +319,7 @@ object TLMergedBundle {
     merged.param   := d.param
     merged.size    := d.size
     merged.source  := d.source
+    merged.sink    := 0.U
     merged.address := DontCare
     merged.data    := d.data
     if(hasCorruptDenied) {
@@ -336,6 +341,7 @@ object TLMergedBundle {
     merged.param   := 0.U
     merged.size    := 0.U
     merged.source  := 0.U
+    merged.sink    := 0.U
     merged.address := 0.U
     merged.data    := 0.U
     if(hasCorruptDenied) {
@@ -405,6 +411,7 @@ object TLMergedBundle {
     b.param   := chan.param
     b.size    := chan.size
     b.source  := chan.source
+    b.sink    := chan.sink
     b.address := chan.address
     b.data    := chan.data
     if(hasCorruptDenied)
@@ -434,6 +441,7 @@ object TLMergedBundle {
     c.param   := chan.param
     c.size    := chan.size
     c.source  := chan.source
+    c.sink    := chan.sink
     c.address := chan.address
     c.data    := chan.data
     if(hasCorruptDenied)

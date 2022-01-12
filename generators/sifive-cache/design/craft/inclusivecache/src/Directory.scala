@@ -83,7 +83,11 @@ class Directory(params: InclusiveCacheParameters) extends Module
     data = Vec(params.cache.ways, UInt(width = codeBits))
   )
 
-  val write = Queue(io.write, 1) // must inspect contents => max size 1
+  val writeqin     = Wire(new DecoupledIO(io.write.bits))
+  writeqin.valid  := io.write.valid && !io.write.bits.swz
+  writeqin.bits   := io.write.bits
+  io.write.ready := writeqin.ready
+  val write = Queue(writeqin, 1) // must inspect contents => max size 1
   // a flow Q creates a WaR hazard... this MIGHT not cause a problem
   // a pipe Q causes combinational loop through the scheduler
 
@@ -104,10 +108,10 @@ class Directory(params: InclusiveCacheParameters) extends Module
 
   require (codeBits <= 256)
 
-  write.ready := !io.read.valid || write.bits.swz
+  write.ready := !io.read.valid && !swaper.io.busy
   if(params.remap.en) {
-    swaper.io.write.valid  := write.valid && write.bits.swz
-    swaper.io.write.bits   := write.bits
+    swaper.io.write.valid  := io.write.valid && io.write.bits.swz && writeqin.ready
+    swaper.io.write.bits   := io.write.bits
     swaper.io.iwrite.ready := true.B
     when ((!ren && ((!wipeDone && !wipeOff) || (write.valid && !write.bits.swz))) || swaper.io.iwrite.valid) {
       cc_dir.write(

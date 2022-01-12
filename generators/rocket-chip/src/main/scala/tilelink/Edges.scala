@@ -377,6 +377,7 @@ class TLEdgeOut(
     c.param   := shrinkPermissions
     c.size    := lgSize
     c.source  := fromSource
+    c.sink    := UInt(0)  //unknown mshr sink
     c.address := toAddress
     c.data    := UInt(0)
     c.corrupt := Bool(false)
@@ -391,6 +392,7 @@ class TLEdgeOut(
     c.param   := shrinkPermissions
     c.size    := lgSize
     c.source  := fromSource
+    c.sink    := UInt(0) //unknown mshr sink
     c.address := toAddress
     c.data    := data
     c.corrupt := corrupt
@@ -401,14 +403,15 @@ class TLEdgeOut(
     Release(fromSource, toAddress, lgSize, shrinkPermissions, data, Bool(false))
 
   def ProbeAck(b: TLBundleB, reportPermissions: UInt): TLBundleC =
-    ProbeAck(b.source, b.address, b.size, reportPermissions)
+    ProbeAck(b.source, b.sink, b.address, b.size, reportPermissions)
 
-  def ProbeAck(fromSource: UInt, toAddress: UInt, lgSize: UInt, reportPermissions: UInt): TLBundleC = {
+  def ProbeAck(fromSource: UInt, toSink: UInt, toAddress: UInt, lgSize: UInt, reportPermissions: UInt): TLBundleC = {
     val c = Wire(new TLBundleC(bundle))
     c.opcode  := TLMessages.ProbeAck
     c.param   := reportPermissions
     c.size    := lgSize
     c.source  := fromSource
+    c.sink    := toSink
     c.address := toAddress
     c.data    := UInt(0)
     c.corrupt := Bool(false)
@@ -416,22 +419,23 @@ class TLEdgeOut(
   }
 
   def ProbeAck(b: TLBundleB, reportPermissions: UInt, data: UInt): TLBundleC =
-    ProbeAck(b.source, b.address, b.size, reportPermissions, data)
+    ProbeAck(b.source, b.sink, b.address, b.size, reportPermissions, data)
 
-  def ProbeAck(fromSource: UInt, toAddress: UInt, lgSize: UInt, reportPermissions: UInt, data: UInt, corrupt: Bool): TLBundleC = {
+  def ProbeAck(fromSource: UInt, toSink: UInt, toAddress: UInt, lgSize: UInt, reportPermissions: UInt, data: UInt, corrupt: Bool): TLBundleC = {
     val c = Wire(new TLBundleC(bundle))
     c.opcode  := TLMessages.ProbeAckData
     c.param   := reportPermissions
     c.size    := lgSize
     c.source  := fromSource
+    c.sink    := toSink
     c.address := toAddress
     c.data    := data
     c.corrupt := corrupt
     c
   }
 
-  def ProbeAck(fromSource: UInt, toAddress: UInt, lgSize: UInt, reportPermissions: UInt, data: UInt): TLBundleC =
-    ProbeAck(fromSource, toAddress, lgSize, reportPermissions, data, Bool(false))
+  def ProbeAck(fromSource: UInt, toSink: UInt, toAddress: UInt, lgSize: UInt, reportPermissions: UInt, data: UInt): TLBundleC =
+    ProbeAck(fromSource, toSink, toAddress, lgSize, reportPermissions, data, Bool(false))
 
   def GrantAck(d: TLBundleD): TLBundleE = GrantAck(d.sink)
   def GrantAck(toSink: UInt): TLBundleE = {

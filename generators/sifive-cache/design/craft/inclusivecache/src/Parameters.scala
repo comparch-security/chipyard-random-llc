@@ -152,7 +152,7 @@ case class InclusiveCacheRemapParameters(
   val enableDataBlockSwaperLog = false
 
   //                remaper  x      c     a
-  val rtcamen = Seq(false, false, true, false)
+  val rtcamen = Seq(false, false, false, false)
 
 }
 
