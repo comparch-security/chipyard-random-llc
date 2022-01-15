@@ -31,14 +31,19 @@ class SourceX(params: InclusiveCacheParameters) extends Module
   val io = new Bundle {
     val req = Decoupled(new SourceXRequest(params)).flip
     val x = Decoupled(new SourceXRequest(params))
+    val rx = Decoupled(new SourceXRequest(params))
+    val fldone = Bool().asOutput //only one fluh req inflight
   }
 
-  val x = Wire(io.x) // ready must not depend on valid
-  io.x <> Queue(x, 1)
+  val x = Module(new Queue(io.req.bits, 2))
 
-  io.req.ready := x.ready
-  x.valid := io.req.valid
-  params.ccover(x.valid && !x.ready, "SOURCEX_STALL", "Backpressure when sending a control message")
+  x.io.enq.valid := io.req.valid && io.req.bits.source === 0.U
+  x.io.enq.bits  := io.req.bits
+  io.req.ready   := x.io.enq.ready
+  io.x <> x.io.deq
+  params.ccover(io.x.valid && !io.x.ready, "SOURCEX_STALL", "Backpressure when sending a control message")
 
-  x.bits := io.req.bits
+  io.rx.valid := io.req.fire() && io.req.bits.source === 1.U
+
+  io.fldone := io.x.fire()
 }

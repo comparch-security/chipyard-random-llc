@@ -21,7 +21,7 @@ import Chisel._
 import freechips.rocketchip.tilelink._
 import freechips.rocketchip.util._
 
-class FSourceX(params: InclusiveCacheParameters) extends Module
+class FSourceX_no_used_anymore(params: InclusiveCacheParameters) extends Module
 {
   val io = new Bundle {
     val front  = Decoupled(new SourceXRequest(params)).flip
@@ -51,7 +51,7 @@ class FSourceX(params: InclusiveCacheParameters) extends Module
   params.ccover(io.front.valid && !io.front.ready, "SOURCEX_STALL", "Backpressure when sending a control message")
 }
 
-class FSinkX(params: InclusiveCacheParameters) extends Module
+class FSinkX_no_used_anymore(params: InclusiveCacheParameters) extends Module
 {
   val io = new Bundle {
     val front    = Decoupled(new SinkXRequest(params)).flip
@@ -108,7 +108,7 @@ class FSinkX(params: InclusiveCacheParameters) extends Module
 }
 
 //FrontEnd of SinkA and SinkC
-class FSink[T <: TLAddrChannel](val gen: T, params: InclusiveCacheParameters) extends Module
+class FSink_no_used_anymore[T <: TLAddrChannel](val gen: T, params: InclusiveCacheParameters) extends Module
 {
   val io = new Bundle {
     val front      = Decoupled(gen).flip
@@ -198,5 +198,64 @@ class FSink[T <: TLAddrChannel](val gen: T, params: InclusiveCacheParameters) ex
   //ASSERT  
   when(io.back.valid) {
     assert(!back.io.enq.valid || back.io.enq.ready)
+  }
+}
+
+//FrontEnd of SinkA and SinkX
+class FSink[T <: Data](val gen: T, params: InclusiveCacheParameters) extends Module
+{
+  val io = new Bundle {
+    val front      = Decoupled(gen).flip
+    val back       = Decoupled(gen)
+    val hset       = Vec(2, Decoupled(UInt(width = params.setBits)))
+    //for use by rempaer
+    val rstatus    = new RemaperStatusIO(params.setBits).asInput  //Remaper Status
+    val rtab       = new SourceSinkRandomTableIO(params.blkadrBits, params.setBits)
+  }
+
+  val back           =                Module(new Queue(io.front.bits.cloneType,       1, pipe = false, flow = true ))
+  val hset           =  Seq.fill(2) { Module(new Queue(UInt(width = params.setBits),  1, pipe = false, flow = true )) }
+  val address        =  Wire(UInt())
+  io.front.bits match {
+    case a: TLBundleA    => { address := a.address }
+    case x: SinkXRequest => { address := x.address }
+    case _               =>     require(false)  
+  }
+  val (tag, set, _)  = params.parseAddress(address)
+  val blkadr         = Cat(tag, set)
+  val stall          = RegInit(false.B)
+
+  val swapped        = Wire(init = ((io.rstatus.cloc === RTAL.LEFT && io.rtab.resp.bits.lhset < io.rstatus.head) || (io.rstatus.cloc === RTAL.RIGH && io.rtab.resp.bits.rhset < io.rstatus.head)))
+
+  //io.front      --->  io.rtab.req
+  io.rtab.req.valid             := io.front.valid && !stall
+  io.rtab.req.bits.blkadr       := blkadr
+
+  //io.rtab.resp  --->  hset
+  hset(0).io.enq.valid          := io.rtab.resp.valid
+  hset(0).io.enq.bits           := Mux(Mux(!io.rstatus.oneloc && swapped, io.rstatus.nloc === RTAL.LEFT, io.rstatus.cloc === RTAL.LEFT), io.rtab.resp.bits.lhset, io.rtab.resp.bits.rhset)
+  hset(1).io.enq.valid          := io.rtab.resp.valid && !io.rstatus.oneloc && !swapped
+  hset(1).io.enq.bits           := Mux(io.rstatus.nloc === RTAL.LEFT, io.rtab.resp.bits.lhset, io.rtab.resp.bits.rhset)
+
+  //io.front      --->  back
+  back.io.enq.valid             :=  io.rtab.resp.valid
+  back.io.enq.bits              :=  io.front.bits
+  io.front.ready                :=  io.rtab.resp.valid
+
+  //back          ---> io.back
+  io.back <> back.io.deq
+  (0 to 1).map( i => {
+    io.hset(i).valid            := hset(i).io.deq.valid
+    io.hset(i).bits             := hset(i).io.deq.bits
+    hset(i).io.deq.ready        := io.back.ready
+  })
+
+
+  when( io.rtab.req.fire()  )  { stall   := true.B    }
+  when( io.back.fire()      )  { stall   := false.B   }
+
+  //ASSERT
+  when(io.rtab.resp.valid) {
+    assert(back.io.enq.ready && hset(0).io.enq.ready && hset(1).io.enq.ready)
   }
 }

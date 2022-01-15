@@ -34,6 +34,10 @@ class ScheduleRequest(params: InclusiveCacheParameters) extends InclusiveCacheBu
   val x = Valid(new SourceXRequest(params))
   val dir = Valid(new DirectoryWrite(params))
   val reload = Bool() // get next request via allocate (if any)
+  val rereq  = Valid(new FullRequest(params))
+  val rrfreeA   = Bool() //free rereq zone
+  val rrfreeB   = Bool() //free rereq zone
+  val rrfreeC   = Bool() //free rereq zone
 }
 
 class MSHRStatus(params: InclusiveCacheParameters) extends InclusiveCacheBundle(params)
@@ -46,6 +50,7 @@ class MSHRStatus(params: InclusiveCacheParameters) extends InclusiveCacheBundle(
   val nestB  = Bool()
   val blockC = Bool()
   val nestC  = Bool()
+  val nop    = Bool()
 }
 
 class NestedWriteback(params: InclusiveCacheParameters) extends InclusiveCacheBundle(params)
@@ -90,7 +95,7 @@ class MSHR(params: InclusiveCacheParameters) extends Module
     val sinkd     = Valid(new SinkDResponse(params)).flip
     val sinke     = Valid(new SinkEResponse(params)).flip
     val nestedwb  = new NestedWriteback(params).flip
-    val rstatus  = new RemaperStatusIO(params.setBits).asInput  //Remaper Status
+    val rstatus   = new RemaperStatusIO(params.setBits).asInput  //Remaper Status
   }
 
   val request_valid = RegInit(Bool(false))
@@ -136,6 +141,7 @@ class MSHR(params: InclusiveCacheParameters) extends Module
   val s_execute        = RegInit(Bool(true)) // D  w_pprobeack, w_grant
   val w_grantack       = RegInit(Bool(true))
   val s_writeback      = RegInit(Bool(true)) // W  w_*
+  val s_nop            = RegInit(Bool(true))
   val no_wait          = w_rprobeacklast && w_releaseack && w_grantlast && w_pprobeacklast && w_grantack
 
   // [1]: We cannot issue outer Acquire while holding blockB (=> outA can stall)
@@ -166,6 +172,7 @@ class MSHR(params: InclusiveCacheParameters) extends Module
   io.status.bits.tag    := request.tag
   io.status.bits.way    := meta.way
   io.status.bits.swz    := meta.swz
+  io.status.bits.nop    := !s_nop
   io.status.bits.blockB := !meta_valid || ((!w_releaseack || !w_rprobeacklast || !w_pprobeacklast) && !w_grantfirst)
   io.status.bits.nestB  := meta_valid && w_releaseack && w_rprobeacklast && w_pprobeacklast && !w_grantfirst
   // The above rules ensure we will block and not nest an outer probe while still doing our
@@ -189,9 +196,9 @@ class MSHR(params: InclusiveCacheParameters) extends Module
   io.schedule.bits.x.valid := !s_flush && w_releaseack
   io.schedule.bits.dir.valid := (!s_release && w_rprobeackfirst) || (!s_writeback && no_wait)
   io.schedule.bits.reload := no_wait
-  io.schedule.valid := io.schedule.bits.a.valid || io.schedule.bits.b.valid || io.schedule.bits.c.valid ||
-                       io.schedule.bits.d.valid || io.schedule.bits.e.valid || io.schedule.bits.x.valid ||
-                       io.schedule.bits.dir.valid
+  io.schedule.valid := io.schedule.bits.a.valid    || io.schedule.bits.b.valid    || io.schedule.bits.c.valid    ||
+                       io.schedule.bits.d.valid    || io.schedule.bits.e.valid    || io.schedule.bits.x.valid    ||
+                       io.schedule.bits.dir.valid  || !s_nop
 
   // Schedule completions
   when (io.schedule.ready) {
@@ -204,6 +211,7 @@ class MSHR(params: InclusiveCacheParameters) extends Module
     when (w_grantfirst)           { s_grantack   := Bool(true) }
     when (w_pprobeack && w_grant) { s_execute    := Bool(true) }
     when (no_wait)                { s_writeback  := Bool(true) }
+                                      s_nop      := Bool(true)
     // Await the next operation
     when (no_wait) {
       request_valid := Bool(false)
@@ -314,7 +322,18 @@ class MSHR(params: InclusiveCacheParameters) extends Module
   io.schedule.bits.dir.bits.set   := request.set
   io.schedule.bits.dir.bits.way   := meta.way
   io.schedule.bits.dir.bits.data  := Mux(!s_release, invalid, Wire(new DirectoryEntry(params), init = final_meta_writeback))
+  io.schedule.bits.rereq.valid             := request.newset.valid && io.directory.valid && !io.directory.bits.hit
+  io.schedule.bits.rereq.bits              := request
+  io.schedule.bits.rereq.bits.set          := request.newset.bits
+  io.schedule.bits.rereq.bits.newset.valid := false.B
+  io.schedule.bits.rrfreeA                 := false.B
+  io.schedule.bits.rrfreeB                 := false.B
+  io.schedule.bits.rrfreeC                 := false.B
+  when((io.directory.valid && io.directory.bits.hit) || (io.allocate.valid && io.allocate.bits.repeat)) {
+    io.schedule.bits.rrfreeA               := request.newset.valid && request.prio(0) && !request.control  
+  }
 
+                                               
   // Coverage of state transitions
   def cacheState(entry: DirectoryEntry, hit: Bool) = {
     val out = Wire(UInt())
@@ -539,7 +558,9 @@ class MSHR(params: InclusiveCacheParameters) extends Module
     assert (!request_valid || (no_wait && io.schedule.fire()))
     request_valid := Bool(true)
     request := io.allocate.bits
+    when(io.allocate.bits.repeat) { request.newset.valid := false.B }
   }
+  when(io.directory.valid && io.directory.bits.hit) { request.newset.valid := false.B }
 
   // Create execution plan
   when (io.directory.valid || (io.allocate.valid && io.allocate.bits.repeat)) {
@@ -572,9 +593,14 @@ class MSHR(params: InclusiveCacheParameters) extends Module
     s_execute        := Bool(true)
     w_grantack       := Bool(true)
     s_writeback      := Bool(true)
+    s_nop            := Bool(true)
 
+
+    when(io.directory.valid && !io.directory.bits.hit && request.newset.valid) {
+      s_nop          := Bool(false)
+    }
     // For C channel requests (ie: Release[Data])
-    when (new_request.prio(2) && Bool(!params.firstLevel)) {
+    .elsewhen (new_request.prio(2) && Bool(!params.firstLevel)) {
       s_execute := Bool(false)
       // Do we need to go dirty?
       when (new_request.opcode(0) && !new_meta.dirty) {

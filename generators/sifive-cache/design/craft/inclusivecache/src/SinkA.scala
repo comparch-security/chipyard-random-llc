@@ -39,18 +39,19 @@ class SinkA(params: InclusiveCacheParameters) extends Module
   val io = new Bundle {
     val req = Decoupled(new FullRequest(params))
     val a = Decoupled(new TLBundleA(params.inner.bundle)).flip
+    val hset    = Vec(2, Decoupled(UInt(width = params.setBits)).flip)
+    val rereq   = Decoupled(new FullRequest(params)).flip
+    val rrfree  = Bool().asInput //free rereq zone
     // for use by SourceD:
     val pb_pop  = Decoupled(new PutBufferPop(params)).flip
     val pb_beat = new PutBufferAEntry(params)
-    //for use by rempaer
-    val idle    = Bool()                                              //can remap safely
-    val diradr  = Decoupled(new DirectoryRead(params)).flip           //must synchronize with a!!
   }
 
   // No restrictions on the type of buffer
   val a = params.micro.innerBuf.a(io.a)
-  val diradr = params.micro.innerBuf.a(io.diradr)
-  diradr.ready := a.ready
+  val hset = Seq(params.micro.innerBuf.a(io.hset(0)), params.micro.innerBuf.a(io.hset(1)))
+  hset(0).ready := a.ready
+  hset(1).ready := a.ready
 
   val putbuffer = Module(new ListBuffer(ListBufferParameters(new PutBufferAEntry(params), params.putLists, params.putBeats, false)))
   val lists = RegInit(UInt(0, width = params.putLists))
@@ -71,7 +72,7 @@ class SinkA(params: InclusiveCacheParameters) extends Module
   //   If it has Data, it must go to the putbuffer
   //   If it has Data AND is the first beat, it must claim a list
 
-  val req_block = first && !io.req.ready
+  val req_block = Wire(init = first && !io.req.ready)
   val buf_block = hasData && !putbuffer.io.push.ready
   val set_block = hasData && first && !free
 
@@ -85,7 +86,7 @@ class SinkA(params: InclusiveCacheParameters) extends Module
   when (a.valid && first && hasData && !req_block && !buf_block) { lists_set := freeOH }
 
   val (atag, aset, aoffset) = params.parseAddress(a.bits.address)
-  val (tag, set, offset) = if(params.remap.en) (Cat(atag, aset), diradr.bits.set, aoffset) else (atag, aset, aoffset)
+  val (tag, set, offset) = if(params.remap.en) (Cat(atag, aset), hset(0).bits, aoffset) else (atag, aset, aoffset)
   val put = Mux(first, freeIdx, RegEnable(freeIdx, first))
 
   io.req.bits.prio   := Vec(UInt(1, width=3).asBools)
@@ -114,5 +115,43 @@ class SinkA(params: InclusiveCacheParameters) extends Module
     lists_clr := UIntToOH(io.pb_pop.bits.index, params.putLists)
   }
 
-  io.idle := !a.valid & putbuffer.io.empty
+  if(params.remap.en) {
+    val rereq_entries = 4
+    val rrbook = RegInit(UInt(0, width = rereq_entries)) //book a rereq fifo space
+    val reqarb = Module(new Arbiter(io.req.bits.cloneType, 2))
+    req_block  := first && (rrbook(rereq_entries-1) || !reqarb.io.in(1).ready)
+
+    val rrbook_shiftl = (reqarb.io.in(1).fire() &&  reqarb.io.in(1).bits.newset.valid).asUInt
+    val rrbook_shiftr = (reqarb.io.in(0).fire() && !reqarb.io.in(0).bits.newset.valid).asUInt + Cat(0.U, io.rrfree)
+
+    rrbook := rrbook << rrbook_shiftl >> rrbook_shiftr
+    when(rrbook === 0.U && rrbook_shiftl.asBool()) { rrbook := 1.U }
+
+    //rereq
+    reqarb.io.in(0)                     <> Queue(io.rereq, rereq_entries, pipe = false, flow = false)
+    //firstreq
+    reqarb.io.in(1).valid               := a.valid && first && !buf_block && !set_block && !rrbook(rereq_entries-1)
+    reqarb.io.in(1).bits.opcode         := a.bits.opcode
+    reqarb.io.in(1).bits.param          := a.bits.param
+    reqarb.io.in(1).bits.size           := a.bits.size
+    reqarb.io.in(1).bits.source         := a.bits.source
+    reqarb.io.in(1).bits.offset         := offset
+    reqarb.io.in(1).bits.newset.valid   := hset(1).valid
+    reqarb.io.in(1).bits.newset.bits    := hset(1).bits
+    reqarb.io.in(1).bits.set            := hset(0).bits
+    reqarb.io.in(1).bits.tag            := tag
+    reqarb.io.in(1).bits.put            := put
+    a.ready                             := !req_block && !buf_block && !set_block
+
+    io.req.valid                        := reqarb.io.out.valid
+    io.req.bits                         := reqarb.io.out.bits
+    io.req.bits.prio                    := Vec(UInt(1, width=3).asBools)
+    io.req.bits.control                 := Bool(false)
+    reqarb.io.out.ready                 := io.req.ready
+
+    when(io.rereq.valid) { assert(io.rereq.ready) }
+
+  }
+
+
 }
