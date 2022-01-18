@@ -182,19 +182,21 @@ class Scheduler(params: InclusiveCacheParameters) extends Module
 
   // If no MSHR has been assigned to this set, we need to allocate one
   val setMatches = Cat(mshrs.map { m => m.io.status.valid && m.io.status.bits.set === request.bits.set }.reverse)
-  val alloc = !setMatches.orR() // NOTE: no matches also means no BC or C pre-emption on this set
+  // when release's newhset is valid and oldhset Matches must disasmbiguate
+  val disamb = !request.bits.prio(0) && setMatches.orR() && request.bits.newset.valid
+  val alloc = !setMatches.orR() || disamb// NOTE: no matches also means no BC or C pre-emption on this set
   // If a same-set MSHR says that requests of this type must be blocked (for bounded time), do it
   val blockB = Mux1H(setMatches, mshrs.map(_.io.status.bits.blockB)) && request.bits.prio(1)
   val blockC = Mux1H(setMatches, mshrs.map(_.io.status.bits.blockC)) && request.bits.prio(2)
   // If a same-set MSHR says that requests of this type must be handled out-of-band, use special BC|C MSHR
   // ... these special MSHRs interlock the MSHR that said it should be pre-empted.
-  val nestB  = Mux1H(setMatches, mshrs.map(_.io.status.bits.nestB))  && request.bits.prio(1)
-  val nestC  = Mux1H(setMatches, mshrs.map(_.io.status.bits.nestC))  && request.bits.prio(2)
+  val nestB  = Mux1H(setMatches, mshrs.map(_.io.status.bits.nestB))  && request.bits.prio(1) && !request.bits.newset.valid
+  val nestC  = Mux1H(setMatches, mshrs.map(_.io.status.bits.nestC))  && request.bits.prio(2) && !request.bits.newset.valid
   // Prevent priority inversion; we may not queue to MSHRs beyond our level
   val prioFilter = Cat(request.bits.prio(2), !request.bits.prio(0), ~UInt(0, width = params.mshrs-2))
   val lowerMatches = setMatches & prioFilter
   // If we match an MSHR <= our priority that neither blocks nor nests us, queue to it.
-  val queue = lowerMatches.orR() && !nestB && !nestC && !blockB && !blockC
+  val queue = lowerMatches.orR() && !nestB && !nestC && !blockB && !blockC && !disamb
 
   if (!params.lastLevel) {
     params.ccover(request.valid && blockB, "SCHEDULER_BLOCKB", "Interlock B request while resolving set conflict")
@@ -245,6 +247,7 @@ class Scheduler(params: InclusiveCacheParameters) extends Module
     m.io.allocate.bits := Mux(bypass, Wire(new QueuedRequest(params), init = request.bits), requests.io.data)
     m.io.allocate.bits.set := m.io.status.bits.set
     m.io.allocate.bits.repeat := m.io.allocate.bits.tag === m.io.status.bits.tag && !m.io.status.bits.nop && !m.io.status.bits.swz
+    m.io.allocate.bits.disamb := false.B 
     m.io.allocate.valid := sel && will_reload
   }
 
@@ -293,6 +296,7 @@ class Scheduler(params: InclusiveCacheParameters) extends Module
       m.io.allocate.valid := Bool(true)
       m.io.allocate.bits := request.bits
       m.io.allocate.bits.repeat := Bool(false)
+      m.io.allocate.bits.disamb := disamb
     }
   }
 
@@ -300,6 +304,7 @@ class Scheduler(params: InclusiveCacheParameters) extends Module
     bc_mshr.io.allocate.valid := Bool(true)
     bc_mshr.io.allocate.bits := request.bits
     bc_mshr.io.allocate.bits.repeat := Bool(false)
+    bc_mshr.io.allocate.bits.disamb := Bool(false)
     assert (!request.bits.prio(0))
   }
   bc_mshr.io.allocate.bits.prio(0) := Bool(false)
@@ -308,6 +313,7 @@ class Scheduler(params: InclusiveCacheParameters) extends Module
     c_mshr.io.allocate.valid := Bool(true)
     c_mshr.io.allocate.bits := request.bits
     c_mshr.io.allocate.bits.repeat := Bool(false)
+    c_mshr.io.allocate.bits.disamb := Bool(false)
     assert (!request.bits.prio(0))
     assert (!request.bits.prio(1))
   }
@@ -388,27 +394,21 @@ class Scheduler(params: InclusiveCacheParameters) extends Module
       rereq_arb.io.in(i).valid := m.io.schedule.bits.rereq.valid
       rereq_arb.io.in(i).bits  := m.io.schedule.bits.rereq.bits
     }
+    sinkC.io.rereq.valid  := rereq_arb.io.out.valid && rereq_arb.io.out.bits.prio(2)
+    sinkC.io.rereq.bits   := rereq_arb.io.out.bits
+    sinkC.io.rrfree       := Cat(mshrs.map { m => m.io.schedule.bits.rrfreeC }).orR
     sinkX.io.rereq.valid  := rereq_arb.io.out.valid && rereq_arb.io.out.bits.prio(0) &&  rereq_arb.io.out.bits.control
     sinkX.io.rereq.bits   := rereq_arb.io.out.bits
     sinkA.io.rereq.valid  := rereq_arb.io.out.valid && rereq_arb.io.out.bits.prio(0) && !rereq_arb.io.out.bits.control
     sinkA.io.rereq.bits   := rereq_arb.io.out.bits
     sinkA.io.rrfree       := Cat(mshrs.map { m => m.io.schedule.bits.rrfreeA }).orR
 
-    //fsink read directory to get true hset
-    sinkC.io.dir_read.ready     := false.B
-    when(!(mshr_uses_directory || alloc_uses_directory)) {
-      directory.io.read.valid   := sinkC.io.dir_read.valid
-      directory.io.read.bits    := sinkC.io.dir_read.bits
-      sinkC.io.dir_read.ready   := directory.io.ready
-    }
-    sinkC.io.dir_result.valid  := params.dirReg(RegNext(sinkC.io.dir_read.fire())) //  val directoryFanout = params.dirReg(RegNext(Mux(mshr_uses_directory, mshr_selectOH, Mux(alloc_uses_directory, dirTarget, UInt(0)))))
-    sinkC.io.dir_result.bits   := directory.io.result.bits
-
     //remap cache
     //evict
     sinkX.io.rx         <> remaper.io.evreq     ; remaper.io.evresp   <> sourceX.io.rx        //remaper  ---> sinkX    --> .... --> sourceX --> remaper
     //swap directoryentry
     directory.io.rreq   <>  remaper.io.dereq    ; remaper.io.deresp  :=  directory.io.rresp   //remaper  ---> directory --> remaper
+    directory.io.newset :=  remaper.io.newset
     //swap datablock
     bankedStore.io.rreq <>  remaper.io.dbreq                                                  //remaper  ---> bankedStore
 

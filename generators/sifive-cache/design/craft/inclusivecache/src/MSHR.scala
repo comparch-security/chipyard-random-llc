@@ -99,7 +99,7 @@ class MSHR(params: InclusiveCacheParameters) extends Module
   }
 
   val request_valid = RegInit(Bool(false))
-  val request = Reg(new FullRequest(params))
+  val request = Reg(new AllocateRequest(params))
   val meta_valid = RegInit(Bool(false))
   val meta = Reg(new DirectoryResult(params))
 
@@ -322,15 +322,21 @@ class MSHR(params: InclusiveCacheParameters) extends Module
   io.schedule.bits.dir.bits.set   := request.set
   io.schedule.bits.dir.bits.way   := meta.way
   io.schedule.bits.dir.bits.data  := Mux(!s_release, invalid, Wire(new DirectoryEntry(params), init = final_meta_writeback))
-  io.schedule.bits.rereq.valid             := request.newset.valid && io.directory.valid && !io.directory.bits.hit
+  //!io.directory.bits.hit:  when using the oldset index results in a miss, rereq using the newset index
+  // io.directory.bits.swz:  when using the oldset index results in a hit at swz, wait direntry swapped to newset
+  // request.disamb       :  rereq using the disambiguated index
+  io.schedule.bits.rereq.valid             := request.newset.valid && io.directory.valid && (!io.directory.bits.hit || io.directory.bits.swz || request.disamb)
   io.schedule.bits.rereq.bits              := request
-  io.schedule.bits.rereq.bits.set          := request.newset.bits
-  io.schedule.bits.rereq.bits.newset.valid := false.B
+  io.schedule.bits.rereq.bits.set          := Mux(io.directory.bits.hit, request.set, request.newset.bits)
+  io.schedule.bits.rereq.bits.newset.valid := request.newset.valid && io.directory.bits.swz
+  io.schedule.bits.rereq.bits.newset.bits  := request.newset.bits
   io.schedule.bits.rrfreeA                 := false.B
   io.schedule.bits.rrfreeB                 := false.B
   io.schedule.bits.rrfreeC                 := false.B
-  when((io.directory.valid && io.directory.bits.hit) || (io.allocate.valid && io.allocate.bits.repeat)) {
-    io.schedule.bits.rrfreeA               := request.newset.valid && request.prio(0) && !request.control  
+  when((io.directory.valid && request.newset.valid && !io.schedule.bits.rereq.valid) || 
+       RegNext(io.allocate.valid && io.allocate.bits.newset.valid && io.allocate.bits.repeat)) {
+    io.schedule.bits.rrfreeA               := request.prio(0) && !request.control
+    io.schedule.bits.rrfreeC               := request.prio(2) && !request.control
   }
 
                                                
@@ -526,7 +532,7 @@ class MSHR(params: InclusiveCacheParameters) extends Module
   }
 
   // Bootstrap new requests
-  val allocate_as_full = Wire(new FullRequest(params), init = io.allocate.bits)
+  val allocate_as_full = Wire(new AllocateRequest(params), init = io.allocate.bits)
   val new_meta = Mux(io.allocate.valid && io.allocate.bits.repeat, final_meta_writeback, io.directory.bits)
   val new_request = Mux(io.allocate.valid, allocate_as_full, request)
   val new_needT = needT(new_request.opcode, new_request.param)
@@ -558,7 +564,8 @@ class MSHR(params: InclusiveCacheParameters) extends Module
     assert (!request_valid || (no_wait && io.schedule.fire()))
     request_valid := Bool(true)
     request := io.allocate.bits
-    when(io.allocate.bits.repeat) { request.newset.valid := false.B }
+    when(io.allocate.bits.repeat) { assert(!io.allocate.bits.disamb) }
+    assert (!io.allocate.bits.newset.valid || (io.allocate.bits.newset.bits =/= io.allocate.bits.set))
   }
   when(io.directory.valid && io.directory.bits.hit) { request.newset.valid := false.B }
 
@@ -595,9 +602,9 @@ class MSHR(params: InclusiveCacheParameters) extends Module
     s_writeback      := Bool(true)
     s_nop            := Bool(true)
 
-
-    when(io.directory.valid && !io.directory.bits.hit && request.newset.valid) {
+    when(io.schedule.bits.rereq.valid) {
       s_nop          := Bool(false)
+      meta_valid     := Bool(false)
     }
     // For C channel requests (ie: Release[Data])
     .elsewhen (new_request.prio(2) && Bool(!params.firstLevel)) {

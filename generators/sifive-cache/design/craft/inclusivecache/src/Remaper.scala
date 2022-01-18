@@ -247,6 +247,7 @@ class DirectoryEntrySwaper(params: InclusiveCacheParameters) extends Module
     //remap
     val rreq     = Decoupled(new SwaperReq(params)).flip
     val rresp    = Valid(new SwaperResp(params))
+    val newset   = Valid(UInt(width = params.setBits)).flip
   }
   val iways        = io.iresp.bits
   val rreq         = Reg(new SwaperReq(params))
@@ -275,7 +276,7 @@ class DirectoryEntrySwaper(params: InclusiveCacheParameters) extends Module
   //swap_entry: read and write for MSHR
   //io.read
   //swap zone only belong to one set(either source or dest)
-  io.result.valid         := RegNext(io.read.valid && io.read.bits.set === swap_entry.set &&
+  io.result.valid         := RegNext(io.read.valid && io.read.bits.set === Mux(io.newset.valid, io.newset.bits, swap_entry.set) &&
                                Mux(io.write.valid, io.write.bits.data.state =/= INVALID && io.read.bits.tag === io.write.bits.data.tag,
                                                    swap_entry.data.state =/= INVALID && io.read.bits.tag === swap_entry.data.tag))
   io.result.bits          := swap_entry.data
@@ -314,15 +315,22 @@ class DirectoryEntrySwaper(params: InclusiveCacheParameters) extends Module
   io.iwrite.bits.way        :=  resp_entry.way
   io.iwrite.bits.data       :=  swap_entry.data
   io.iwrite.bits.data.loc   :=  rreq.nloc
-  when( rreq.head        )     { io.iwrite.bits.data.state    := INVALID               }
+  when( rreq.head        )     {
+    io.iwrite.bits.data.dirty    := false.B
+    io.iwrite.bits.data.state    := INVALID
+    io.iwrite.bits.data.clients  := 0.U
+  }
   when( io.rreq.fire()   )     { swap_entry.set               :=  io.rreq.bits.set     }
+  when( io.newset.valid  )     { swap_entry.set               :=  io.newset.bits       }
   when( io.iwrite.fire() )     {
     swap_entry.way          := resp_entry.way
     swap_entry.data         := resp_entry.data
     swap_entry.data.loc     := rreq.nloc
   }
   when( (io.rresp.valid && io.rresp.bits.nop) || (io.iwrite.fire() && io.rresp.bits.tail && !io.rresp.bits.evict.valid)) {
+    swap_entry.data.dirty     := false.B
     swap_entry.data.state     := INVALID
+    swap_entry.data.clients   := 0.U
   }
 
   //io.rresp:   resp next blkadr(tag) to remaper
@@ -418,6 +426,7 @@ class DataBlockSwaper(params: InclusiveCacheParameters) extends Module
   val io_req        = (0 until numBanks).map( io.req(_)  )
   val io_resp       = (0 until numBanks).map( io.resp(_) )
   io_req zip io_resp zip swap_data map { case ((req, resp), data) => {
+    when(req.valid) { assert(s_idle) }
     when(req.valid & req.bits.wen) { data(req.bits.index) := req.bits.data }
       resp.valid   := RegNext(req.valid & !req.bits.wen)
       resp.bits    := RegEnable(data(req.bits.index), req.valid & !req.bits.wen)
@@ -549,6 +558,7 @@ class Remaper(params: InclusiveCacheParameters) extends Module {
     //DirectoryEntrySwaper
     val dereq      = Decoupled(new SwaperReq(params))
     val deresp     = Valid(new SwaperResp(params)).flip
+    val newset     = Valid(UInt(width = params.setBits))
     //DataBlockSwaper
     val dbreq      = Decoupled(new SwaperReq(params))
     //X Channel
@@ -654,6 +664,8 @@ class Remaper(params: InclusiveCacheParameters) extends Module {
       p_head.nots := ways.U
     }
   }
+  io.newset.valid         := io.rtresp.valid
+  io.newset.bits          := Mux(loc_next === RTAL.RIGH, io.rtresp.bits.rhset, io.rtresp.bits.lhset)
 
   //io.deresp
   //pointer

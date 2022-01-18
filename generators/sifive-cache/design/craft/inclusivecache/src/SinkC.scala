@@ -44,6 +44,8 @@ class SinkC(params: InclusiveCacheParameters) extends Module
     val req = Decoupled(new FullRequest(params)) // Release
     val resp = Valid(new SinkCResponse(params)) // ProbeAck
     val c = Decoupled(new TLBundleC(params.inner.bundle)).flip
+    val rereq   = Decoupled(new FullRequest(params)).flip
+    val rrfree  = Bool().asInput //free rereq zone
     // Find 'set' 'way' and 'swz' via MSHR CAM lookup
     val sink   = UInt(width = params.outer.bundle.sinkBits)
     val set    = UInt(width = params.setBits).flip
@@ -56,11 +58,9 @@ class SinkC(params: InclusiveCacheParameters) extends Module
     val rel_pop  = Decoupled(new PutBufferPop(params)).flip
     val rel_beat = new PutBufferCEntry(params)
     //for use by rempaer
-    val busy       = Bool()
-    val rstatus    = new RemaperStatusIO(params.setBits).asInput  //Remaper Status
-    val rtab       = new SourceSinkRandomTableIO(params.blkadrBits, params.setBits)
-    val dir_read   = Decoupled(new DirectoryRead(params))
-    val dir_result = Valid(new DirectoryResult(params)).asInput
+    val busy     = Bool()
+    val rstatus  = new RemaperStatusIO(params.setBits).asInput  //Remaper Status
+    val rtab     = new SourceSinkRandomTableIO(params.blkadrBits, params.setBits)
   }
 
   if (params.firstLevel) {
@@ -177,6 +177,8 @@ class SinkC(params: InclusiveCacheParameters) extends Module
       req_block := false.B  //no block data flow
 
       val nbreq   = Module(new NBSinkCReq(params))
+      val reqarb  = Module(new Arbiter(io.req.bits.cloneType, 2))
+      val rrbook  = RegInit(false.B) //book a rereq fifo space
       val block   = buf_block || set_block
 
       //io.c
@@ -188,18 +190,35 @@ class SinkC(params: InclusiveCacheParameters) extends Module
 
       //get hset
       nbreq.io.rstatus      := io.rstatus
-      io.rtab               := nbreq.io.rtab
-      io.dir_read           := nbreq.io.dir_read
-      nbreq.io.dir_result   := io.dir_result
+      io.rtab.req           <> nbreq.io.rtab.req
+      nbreq.io.rtab.resp    := io.rtab.resp
 
       //io.req
       io.req.valid          :=  nbreq.io.req.valid && !block
       io.req.bits           :=  nbreq.io.req.bits
       io.req.bits.put       :=  put
-      nbreq.io.req.ready    :=  io.req.ready && !block
+      
+      when( io.rrfree                                                    ) { rrbook := false.B }
+      when( reqarb.io.in(0).fire() && !reqarb.io.in(0).bits.newset.valid ) { rrbook := false.B }
+      when( reqarb.io.in(1).fire() &&  reqarb.io.in(1).bits.newset.valid ) { rrbook := true.B  }
 
-      io.busy               := io.c.valid || c.valid || nbreq.io.busy || putbuffer.io.valid =/= 0.U
+      //rereq
+      reqarb.io.in(0)                     <> Queue(io.rereq, 1, pipe = false, flow = false)
+      //firstreq
+      reqarb.io.in(1).valid               := nbreq.io.req.valid && !block && !rrbook
+      reqarb.io.in(1).bits                := nbreq.io.req.bits
+      reqarb.io.in(1).bits.put            := put
+      nbreq.io.req.ready                  := io.req.ready && !block && !rrbook
 
+      io.req.valid                        := reqarb.io.out.valid
+      io.req.bits                         := reqarb.io.out.bits
+      io.req.bits.prio                    := Vec(UInt(4, width=3).asBools)
+      io.req.bits.control                 := Bool(false)
+      reqarb.io.out.ready                 := io.req.ready
+
+      io.busy                             := io.c.valid || c.valid || nbreq.io.busy || putbuffer.io.valid =/= 0.U
+
+      when(io.rereq.valid) { assert(io.rereq.ready) }
     }
   }
 }
@@ -214,14 +233,11 @@ class NBSinkCReq(params: InclusiveCacheParameters) extends Module //no block rel
     val busy       = Bool()
     val rstatus    = new RemaperStatusIO(params.setBits).asInput  //Remaper Status
     val rtab       = new SourceSinkRandomTableIO(params.blkadrBits, params.setBits)
-    val dir_read   = Decoupled(new DirectoryRead(params))
-    val dir_result = Valid(new DirectoryResult(params)).asInput
   }
 
   val c          =  Reg(new TLBundleC(params.inner.bundle))
-  val dir_read   =  Module(new Queue(io.dir_read.bits.cloneType,    1, pipe = false, flow = true  ))
-  val true_set   =  Module(new Queue(io.dir_read.bits.cloneType,    1, pipe = false, flow = true  ))  //trueset
-  val set_arb    =  Module(new Arbiter(io.dir_read.bits.cloneType,  2))  //trueset_arb
+  val rtabreq    =  Module(new Queue(UInt(width = params.blkadrBits),  1, pipe = false, flow = true))
+  val hset       =  Seq.fill(2) { Module(new Queue(UInt(width = params.setBits),  1, pipe = false, flow = true )) }
   val busy       =  RegInit(false.B)
 
   val (s0tag, s0set, s0offset) = params.parseAddress(io.c.bits.address)
@@ -233,39 +249,28 @@ class NBSinkCReq(params: InclusiveCacheParameters) extends Module //no block rel
   val needset                  = Wire(init = first && !raw_resp) //need true set
   val swapped                  = Wire(init = ((io.rstatus.cloc === RTAL.LEFT && io.rtab.resp.bits.lhset < io.rstatus.head) || (io.rstatus.cloc === RTAL.RIGH && io.rtab.resp.bits.rhset < io.rstatus.head)))
 
-  val lhset                    = RegEnable(io.rtab.resp.bits.lhset, io.rtab.resp.valid)
-  val rhset                    = RegEnable(io.rtab.resp.bits.rhset, io.rtab.resp.valid)
- 
   io.c.ready := !busy || !needset
   when( io.c.fire() && needset )  { c     := io.c.bits }
   when( io.c.fire() && needset )  { busy  := true.B    }
   when( io.req.fire()          )  { busy  := false.B   }
 
   //rtab
-  io.rtab.req.valid            := io.c.fire() && needset
+  rtabreq.io.enq.valid         := io.c.fire() && needset
+  rtabreq.io.enq.bits          := s0blkadr
+  io.rtab.req.valid            := rtabreq.io.deq.valid
+  io.rtab.req.bits.blkadr      := rtabreq.io.deq.bits
+  rtabreq.io.deq.ready         := io.rtab.req.ready
+  io.rtab.req.valid            := io.c.fire() && needset  //rtab(0).req.io.ready := true.B
   io.rtab.req.bits.blkadr      := s0blkadr
 
-  //dir_read
-  dir_read.io.enq.valid        := io.rtab.resp.valid && !io.rstatus.oneloc && !swapped
-  dir_read.io.enq.bits.tag     := s1blkadr
-  dir_read.io.enq.bits.set     := Mux(io.rstatus.cloc === RTAL.LEFT, io.rtab.resp.bits.lhset, io.rtab.resp.bits.rhset)
-  io.dir_read.valid            := dir_read.io.deq.valid
-  io.dir_read.bits             := dir_read.io.deq.bits
-  dir_read.io.deq.ready        := io.dir_read.ready
-
-  //set_arb
-  set_arb.io.in(0).valid       := RegNext(io.dir_result.valid)
-  set_arb.io.in(0).bits.set    := RegEnable(Mux(io.dir_result.bits.hit, RegNext(io.dir_read.bits.set), Mux(io.rstatus.nloc === RTAL.LEFT, lhset, rhset)), io.dir_result.valid)
-  set_arb.io.in(1).valid       := io.rtab.resp.valid && (io.rstatus.oneloc || swapped)
-  set_arb.io.in(1).bits.set    := Mux(Mux(io.rstatus.oneloc, io.rstatus.cloc === RTAL.LEFT, io.rstatus.nloc === RTAL.LEFT), io.rtab.resp.bits.lhset, io.rtab.resp.bits.rhset)
-
-  //true_set
-  true_set.io.enq.valid        :=  set_arb.io.out.valid
-  true_set.io.enq.bits         :=  set_arb.io.out.bits
-  set_arb.io.out.ready         :=  true_set.io.enq.ready
+  //io.rtab.resp  --->  hset
+  hset(0).io.enq.valid          := io.rtab.resp.valid
+  hset(0).io.enq.bits           := Mux(Mux(!io.rstatus.oneloc && swapped, io.rstatus.nloc === RTAL.LEFT, io.rstatus.cloc === RTAL.LEFT), io.rtab.resp.bits.lhset, io.rtab.resp.bits.rhset)
+  hset(1).io.enq.valid          := io.rtab.resp.valid && !io.rstatus.oneloc && !swapped && (io.rtab.resp.bits.lhset =/= io.rtab.resp.bits.rhset)
+  hset(1).io.enq.bits           := Mux(io.rstatus.nloc === RTAL.LEFT, io.rtab.resp.bits.lhset, io.rtab.resp.bits.rhset)
 
   //io.req
-  io.req.valid                 :=  true_set.io.deq.valid
+  io.req.valid                 :=  hset(0).io.deq.valid
   io.req.bits.prio             :=  Vec(UInt(4, width=3).asBools)
   io.req.bits.control          :=  Bool(false)
   io.req.bits.opcode           :=  c.opcode
@@ -273,11 +278,14 @@ class NBSinkCReq(params: InclusiveCacheParameters) extends Module //no block rel
   io.req.bits.size             :=  c.size
   io.req.bits.source           :=  c.source
   io.req.bits.offset           :=  s1offset
-  io.req.bits.set              :=  true_set.io.deq.bits.set
+  io.req.bits.newset.valid     :=  hset(1).io.deq.valid
+  io.req.bits.newset.bits      :=  hset(1).io.deq.bits
+  io.req.bits.set              :=  hset(0).io.deq.bits
   io.req.bits.tag              :=  s1blkadr
-  true_set.io.deq.ready        :=  io.req.ready
+  hset(0).io.deq.ready         :=  io.req.ready
+  hset(1).io.deq.ready         :=  io.req.ready
   
   io.busy                      := busy
 
-  when(set_arb.io.out.valid) { assert(set_arb.io.out.ready) }
+  when(io.rtab.resp.valid) { assert(hset(0).io.enq.ready) }
 }

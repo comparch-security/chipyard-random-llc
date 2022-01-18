@@ -41,4 +41,5 @@ class FullRequest(params: InclusiveCacheParameters) extends QueuedRequest(params
 class AllocateRequest(params: InclusiveCacheParameters) extends FullRequest(params)
 {
   val repeat = Bool() // set is the same
+  val disamb = Bool() // when release's newhset is valid and oldhset Matches must disasmbiguate
 }

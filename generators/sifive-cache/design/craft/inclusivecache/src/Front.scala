@@ -234,7 +234,7 @@ class FSink[T <: Data](val gen: T, params: InclusiveCacheParameters) extends Mod
   //io.rtab.resp  --->  hset
   hset(0).io.enq.valid          := io.rtab.resp.valid
   hset(0).io.enq.bits           := Mux(Mux(!io.rstatus.oneloc && swapped, io.rstatus.nloc === RTAL.LEFT, io.rstatus.cloc === RTAL.LEFT), io.rtab.resp.bits.lhset, io.rtab.resp.bits.rhset)
-  hset(1).io.enq.valid          := io.rtab.resp.valid && !io.rstatus.oneloc && !swapped
+  hset(1).io.enq.valid          := io.rtab.resp.valid && !io.rstatus.oneloc && !swapped && (io.rtab.resp.bits.lhset =/= io.rtab.resp.bits.rhset)
   hset(1).io.enq.bits           := Mux(io.rstatus.nloc === RTAL.LEFT, io.rtab.resp.bits.lhset, io.rtab.resp.bits.rhset)
 
   //io.front      --->  back

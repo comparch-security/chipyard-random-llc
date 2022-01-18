@@ -65,6 +65,7 @@ class Directory(params: InclusiveCacheParameters) extends Module
     //remaper
     val rreq     = Decoupled(new SwaperReq(params)).flip
     val rresp    = Valid(new SwaperResp(params))
+    val newset   = Valid(UInt(width = params.setBits)).flip
   }
 
   val codeBits = new DirectoryEntry(params).getWidth
@@ -75,6 +76,7 @@ class Directory(params: InclusiveCacheParameters) extends Module
   io.rreq.ready        := swaper.io.rreq.ready
   io.rresp.valid       := swaper.io.rresp.valid
   io.rresp.bits        := swaper.io.rresp.bits
+  swaper.io.newset     := io.newset
 
   val (cc_dir, omSRAM) =  DescribedSRAM(
     name = "cc_dir",

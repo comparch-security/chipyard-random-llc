@@ -214,7 +214,7 @@ class MSHR(id: Int)(implicit edge: TLEdgeOut, p: Parameters) extends L1HellaCach
   when (state === s_meta_clear && io.meta_write.ready) {
     state := s_refill_req
   }
-  when (state === s_wb_resp && io.wb_req.ready) { //must wait acked ?
+  when (state === s_wb_resp && io.wb_req.ready) { //must wait acked ? acked always reach before wb_ready ?
     state := s_meta_clear
   }
   when (io.wb_req.fire()) { // s_wb_req
@@ -231,7 +231,7 @@ class MSHR(id: Int)(implicit edge: TLEdgeOut, p: Parameters) extends L1HellaCach
   }
   when (io.req_pri_val && io.req_pri_rdy) {
     req := io.req_bits
-    acked := true
+    acked := false
     val old_coh = io.req_bits.old_meta.coh
     val needs_wb = old_coh.onCacheControl(M_FLUSH)._1
     val (is_hit, _, coh_on_hit) = old_coh.onAccess(io.req_bits.cmd)
