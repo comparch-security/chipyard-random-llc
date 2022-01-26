@@ -137,13 +137,13 @@ class BankedStore(params: InclusiveCacheParameters) extends Module
     val out = Wire(new Request)
 
     val select = UIntToOH(a(bankBits-1, 0), numBanks/ports)
-    val ready  = Cat(Seq.tabulate(numBanks/ports) { i => !(out.bankSum((i+1)*ports-1, i*ports) & m).orR & !swaper.io.busy} .reverse)
+    val ready  = Cat(Seq.tabulate(numBanks/ports) { i => !(out.bankSum((i+1)*ports-1, i*ports) & m).orR}.reverse)
     b.ready := ready(a(bankBits-1, 0))
 
     out.wen      := write
     out.swz      := b.bits.swz
     out.index    := a >> bankBits
-    out.bankSel  := Mux(b.valid & !swaper.io.busy, FillInterleaved(ports, select) & Fill(numBanks/ports, m), UInt(0))
+    out.bankSel  := Mux(b.valid, FillInterleaved(ports, select) & Fill(numBanks/ports, m), UInt(0))
     out.bankEn   := Mux(b.bits.noop, UInt(0), out.bankSel & FillInterleaved(ports, ready))
     out.data     := Vec(Seq.fill(numBanks/ports) { words }.flatten)
 
@@ -181,19 +181,21 @@ class BankedStore(params: InclusiveCacheParameters) extends Module
 
     val swaper_req    = swaper.io.req(i)
     val swaper_resp   = swaper.io.resp(i)
-    val swaper_ireq   = swaper.io.ireq(i)
-    val swaper_iresp  = swaper.io.iresp(i)
+    val swaper_ireq   = swaper.io.ireq(i)   //inspect req
+    val swaper_iresp  = swaper.io.iresp(i)  //inspect resp
 
     swaper_req.valid        :=  en & swz
     swaper_req.bits.wen     :=  wen
     swaper_req.bits.index   :=  idx
     swaper_req.bits.data    :=  data
+    swaper_ireq.ready       := !en
+    reqs.map(req => { when(swaper_ireq.valid && req.bankEn(i)) { assert(swaper_ireq.bits.index =/= req.index) }})
 
     val regout = Wire(UInt())
     if(params.remap.en) {
-        when ((wen && en && !swz) || (swaper_ireq.bits.wen && swaper_ireq.valid)) { b.write(Mux(swaper_ireq.valid, swaper_ireq.bits.index, idx), Mux(swaper_ireq.valid, swaper_ireq.bits.data, data)) }
-        swaper_iresp := b.read(Mux(swaper_ireq.valid, swaper_ireq.bits.index, idx), (!wen && en) | (!swaper_ireq.bits.wen && swaper_ireq.valid))
-        regout := RegEnable(Mux(swaper_resp.valid, swaper_resp.bits, swaper_iresp), RegNext(!wen && en))
+        when(Mux(en, wen && !swz, swaper_ireq.bits.wen && swaper_ireq.valid)) { b.write(Mux(en, idx, swaper_ireq.bits.index), Mux(en, data, swaper_ireq.bits.data)) }
+        swaper_iresp := b.read(Mux(en, idx, swaper_ireq.bits.index), Mux(en, !wen && !swz, !swaper_ireq.bits.wen && swaper_ireq.valid))
+        regout := RegEnable(Mux(RegNext(!swz), swaper_iresp, swaper_resp), RegNext(!wen && en))
     } else {
         when (wen && en)  { b.write(idx, data) }
         regout := RegEnable(b.read(idx, !wen && en), RegNext(!wen && en))

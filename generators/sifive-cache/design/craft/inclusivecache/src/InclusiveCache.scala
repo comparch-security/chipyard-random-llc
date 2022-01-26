@@ -236,6 +236,7 @@ class InclusiveCache(
 
       scheduler.io.req.valid := flushInValid && flushSelect
       scheduler.io.req.bits.address := flushInAddress
+      scheduler.io.req.bits.opcode := XOPCODE.FLUSH
       scheduler.io.resp.ready := !flushOutValid
 
       //config

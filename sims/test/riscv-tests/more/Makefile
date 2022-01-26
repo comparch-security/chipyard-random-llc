@@ -21,6 +21,7 @@ common = ../benchmarks/common
 bmarks = \
 	hello \
 	dram  \
+	dram_2  \
 	uart \
 
 #--------------------------------------------------------------------

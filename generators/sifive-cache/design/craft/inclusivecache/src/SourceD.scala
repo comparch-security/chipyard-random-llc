@@ -62,11 +62,13 @@ class SourceD(params: InclusiveCacheParameters) extends Module
     val bs_rdat = new BankedStoreInnerDecoded(params).flip
     val bs_wadr = Decoupled(new BankedStoreInnerAddress(params))
     val bs_wdat = new BankedStoreInnerPoison(params)
-    // Is it safe to evict/replace this way?
+    // Is it safe to evict/replace/swap this way?
     val evict_req  = new SourceDHazard(params).flip
     val evict_safe = Bool()
     val grant_req  = new SourceDHazard(params).flip
     val grant_safe = Bool()
+    val swap_req   = new SourceDHazard(params).flip
+    val swap_safe  = Bool()
     //for use by rempaer
     val idle       = Bool() //can remap safely
   }
@@ -388,6 +390,12 @@ class SourceD(params: InclusiveCacheParameters) extends Module
     (!s2_full || io.grant_req.way =/= s2_req.way     || io.grant_req.set =/= s2_req.set     || io.grant_req.swz =/= s2_req.swz)      &&
     (!s3_full || io.grant_req.way =/= s3_req.way     || io.grant_req.set =/= s3_req.set     || io.grant_req.swz =/= s3_req.swz)      &&
     (!s4_full || io.grant_req.way =/= s4_req.way     || io.grant_req.set =/= s4_req.set     || io.grant_req.swz =/= s4_req.swz)
+
+  io.swap_safe :=
+    (!busy    ||((io.swap_req.way =/= s1_req_reg.way || io.swap_req.set =/= s1_req_reg.set) &&  io.swap_req.swz =/= s1_req_reg.swz)) &&
+    (!s2_full ||((io.swap_req.way =/= s2_req.way     || io.swap_req.set =/= s2_req.set)     &&  io.swap_req.swz =/= s2_req.swz))     &&
+    (!s3_full ||((io.swap_req.way =/= s3_req.way     || io.swap_req.set =/= s3_req.set)     &&  io.swap_req.swz =/= s3_req.swz))     &&
+    (!s4_full ||((io.swap_req.way =/= s4_req.way     || io.swap_req.set =/= s4_req.set)     &&  io.swap_req.swz =/= s4_req.swz))
 
   // SourceD cannot overlap with SinkC b/c the only way inner caches could become
   // dirty such that they want to put data in via SinkC is if we Granted them permissions,

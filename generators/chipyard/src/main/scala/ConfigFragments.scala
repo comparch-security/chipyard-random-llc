@@ -55,7 +55,7 @@ class WithUART(baudrate: BigInt = 115200) extends Config((site, here, up) => {
 class WithSPIFlash(size: BigInt = 0x10000000) extends Config((site, here, up) => {
   // Note: the default size matches freedom with the addresses below
   case PeripherySPIFlashKey => Seq(
-    SPIFlashParams(rAddress = 0x10040000, fAddress = 0x20000000, fSize = size))
+    SPIFlashParams(rAddress = 0x64001000L, fAddress = 0x20000000, fSize = size))
 })
 
 class WithL2TLBs(entries: Int) extends Config((site, here, up) => {

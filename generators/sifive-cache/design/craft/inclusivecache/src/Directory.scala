@@ -38,21 +38,24 @@ class DirectoryWrite(params: InclusiveCacheParameters) extends InclusiveCacheBun
   val swz  = Bool()     //swap zone
   val set  = UInt(width = params.setBits)
   val way  = UInt(width = params.wayBits)
+  val mta  = Bool()    //mshr to array
   val data = new DirectoryEntry(params)
 }
 
 class DirectoryRead(params: InclusiveCacheParameters) extends InclusiveCacheBundle(params)
 {
-  val swz = Bool()     //swap zone
   val set = UInt(width = params.setBits)
   val tag = UInt(width = if(params.remap.en) params.blkadrBits else params.tagBits)
+  val swz = Bool()  //read swap zone will trigger swap
 }
 
 class DirectoryResult(params: InclusiveCacheParameters) extends DirectoryEntry(params)
 {
-  val swz = Bool()     //swap zone
+  val swz = Bool()     //hit at swap zone
   val hit = Bool()
+  val mshr = Bool()    //hit at mshr
   val way = UInt(width = params.wayBits)
+  val stm = Bool()     //swap zone to mshr(and then to array)
 }
 
 class Directory(params: InclusiveCacheParameters) extends Module
@@ -65,7 +68,6 @@ class Directory(params: InclusiveCacheParameters) extends Module
     //remaper
     val rreq     = Decoupled(new SwaperReq(params)).flip
     val rresp    = Valid(new SwaperResp(params))
-    val newset   = Valid(UInt(width = params.setBits)).flip
   }
 
   val codeBits = new DirectoryEntry(params).getWidth
@@ -76,7 +78,6 @@ class Directory(params: InclusiveCacheParameters) extends Module
   io.rreq.ready        := swaper.io.rreq.ready
   io.rresp.valid       := swaper.io.rresp.valid
   io.rresp.bits        := swaper.io.rresp.bits
-  swaper.io.newset     := io.newset
 
   val (cc_dir, omSRAM) =  DescribedSRAM(
     name = "cc_dir",
@@ -99,7 +100,7 @@ class Directory(params: InclusiveCacheParameters) extends Module
   val wipeDone = wipeCount(params.setBits)
   val wipeSet = wipeCount(params.setBits - 1,0)
 
-  io.ready := wipeDone && !swaper.io.busy
+  io.ready := wipeDone
   when (!wipeDone && !wipeOff) { wipeCount := wipeCount + UInt(1) }
   assert (wipeDone || !io.read.valid)
 
@@ -110,16 +111,15 @@ class Directory(params: InclusiveCacheParameters) extends Module
 
   require (codeBits <= 256)
 
-  write.ready := !io.read.valid && !swaper.io.busy
+  write.ready := !io.read.valid
   if(params.remap.en) {
-    swaper.io.write.valid  := io.write.valid && io.write.bits.swz && writeqin.ready
+    swaper.io.write.valid  := io.write.valid && writeqin.ready
     swaper.io.write.bits   := io.write.bits
-    swaper.io.iwrite.ready := true.B
-    when ((!ren && ((!wipeDone && !wipeOff) || (write.valid && !write.bits.swz))) || swaper.io.iwrite.valid) {
+    when ((!ren && ((!wipeDone && !wipeOff) || (write.valid && !write.bits.swz)))) {
       cc_dir.write(
-         Mux(wipeDone, Mux(swaper.io.iwrite.valid, swaper.io.iwrite.bits.set, write.bits.set), wipeSet),
-         Vec.fill(params.cache.ways) { Mux(wipeDone, Mux(swaper.io.iwrite.valid, swaper.io.iwrite.bits.asUInt, write.bits.data.asUInt), UInt(0)) },
-         UIntToOH(Mux(swaper.io.iwrite.valid, swaper.io.iwrite.bits.way, write.bits.way), params.cache.ways).asBools.map(_ || !wipeDone))
+      Mux(wipeDone, write.bits.set, wipeSet),
+      Vec.fill(params.cache.ways) { Mux(wipeDone, write.bits.data.asUInt, UInt(0)) },
+      UIntToOH(write.bits.way, params.cache.ways).asBools.map(_ || !wipeDone))
     }
   } else {
     when (!ren && wen) {
@@ -139,9 +139,8 @@ class Directory(params: InclusiveCacheParameters) extends Module
   val bypass = params.dirReg(write.bits, ren1 && write.valid)
   val regout = if(params.remap.en) {
     params.dirReg({
-      val resp = cc_dir.read(Mux(swaper.io.iread.valid, swaper.io.iread.bits.set, io.read.bits.set), io.read.valid | swaper.io.iread.valid)
-      swaper.io.iread.ready := true.B
-      swaper.io.iresp.valid := RegNext(swaper.io.iread.fire())
+      val resp = cc_dir.read(io.read.bits.set, io.read.valid)
+      swaper.io.iresp.valid := RegNext(io.read.valid && io.read.bits.swz)
       swaper.io.iresp.bits  := Vec(resp.map(d => new DirectoryEntry(params).fromBits(d)))
       resp
       },
@@ -182,14 +181,10 @@ class Directory(params: InclusiveCacheParameters) extends Module
     swaper.io.read.valid  := ren
     swaper.io.read.bits   := io.read.bits
     io.result.bits.hit    := regswaperresult.hit || hit || (setQuash && tagMatch && bypass.data.state =/= INVALID)
-    io.result.bits.swz    := regswaperresult.hit
+    io.result.bits.swz    := false.B
+    io.result.bits.stm    := false.B
     when(regswaperresult.hit)  {
-      io.result.bits.loc      := regswaperresult.loc
-      io.result.bits.dirty    := regswaperresult.dirty
-      io.result.bits.state    := regswaperresult.state
-      io.result.bits.clients  := regswaperresult.clients
-      io.result.bits.tag      := regswaperresult.tag
-      io.result.bits.way      := 0.U
+      io.result.bits      := regswaperresult
     }
   }
 
@@ -201,6 +196,6 @@ class Directory(params: InclusiveCacheParameters) extends Module
   if(true) {
     val timers  = RegInit(UInt(0, width = 32))
     timers := timers+1.U
-    when(io.write.fire() && io.write.bits.data.state =/= INVALID) { printf("clk %d tag %x set %x swz %d\n",timers, io.write.bits.data.tag, io.write.bits.set, io.write.bits.swz)}
+    when(io.write.fire() && io.write.bits.data.state =/= INVALID) { printf("clk %d tag %x set %x way %x swz %d\n",timers, io.write.bits.data.tag, io.write.bits.set, io.write.bits.way, io.write.bits.swz)}
   }
 }

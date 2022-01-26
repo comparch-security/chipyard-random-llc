@@ -129,7 +129,8 @@ class Scheduler(params: InclusiveCacheParameters) extends Module
       (sourceD.io.req.ready || !m.io.schedule.bits.d.valid) &&
       (sourceE.io.req.ready || !m.io.schedule.bits.e.valid) &&
       (sourceX.io.req.ready || !m.io.schedule.bits.x.valid) &&
-      (directory.io.write.ready || !m.io.schedule.bits.dir.valid)
+      (directory.io.write.ready || !m.io.schedule.bits.dir.valid) &&
+      (remaper.io.continue.ready || !m.io.schedule.bits.rmp.valid)
   }.reverse)
 
   // Round-robin arbitration of MSHRs
@@ -160,6 +161,7 @@ class Scheduler(params: InclusiveCacheParameters) extends Module
   sourceE.io.req := schedule.e
   sourceX.io.req := schedule.x
   directory.io.write := schedule.dir
+  remaper.io.continue := schedule.rmp
 
   // Forward meta-data changes from nested transaction completion
   val select_c  = mshr_selectOH(params.mshrs-1)
@@ -278,8 +280,11 @@ class Scheduler(params: InclusiveCacheParameters) extends Module
 
   // When a request goes through, it will need to hit the Directory
   directory.io.read.valid := mshr_uses_directory || alloc_uses_directory
-  directory.io.read.bits.set := Mux(mshr_uses_directory_for_lb, scheduleSet,          request.bits.set)
-  directory.io.read.bits.tag := Mux(mshr_uses_directory_for_lb, requests.io.data.tag, request.bits.tag)
+  directory.io.read.bits.set := Mux(will_pop, scheduleSet,          request.bits.set)
+  directory.io.read.bits.tag := Mux(will_pop, requests.io.data.tag, request.bits.tag)
+  //read swap zone will trigger swap
+  directory.io.read.bits.swz := Mux(will_pop, requests.io.data.control && requests.io.data.opcode === XOPCODE.SWAP, 
+                                              request.bits.control     && request.bits.opcode     === XOPCODE.SWAP)
 
   // Enqueue the request if not bypassed directly into an MSHR
   requests.io.push.valid := request.valid && queue && !bypassQueue
@@ -360,10 +365,14 @@ class Scheduler(params: InclusiveCacheParameters) extends Module
   sourceC.io.evict_safe := sourceD.io.evict_safe
   sinkD  .io.grant_safe := sourceD.io.grant_safe
 
+  // Remaper data hazard interlock
+  sourceC.io.swap_req   := remaper.io.swap_req
+  sourceD.io.swap_req   := remaper.io.swap_req
+  remaper.io.swap_safe  := sourceD.io.swap_safe && sourceC.io.swap_safe
+
   if(params.remap.en) {
     val fsinkX                = Module(new FSink(io.req.bits.cloneType,  params))
     val fsinkA                = Module(new FSink(io.in.a.bits.cloneType, params))
-    val idle                  = Wire(new RemaperSafeIO())
 
     //req from inner
     fsinkX.io.front    <> io.req       ;     sinkX.io.x      <> fsinkX.io.back    //io.req     -->   fsinkX    --> sinkX
@@ -404,25 +413,25 @@ class Scheduler(params: InclusiveCacheParameters) extends Module
     sinkA.io.rrfree       := Cat(mshrs.map { m => m.io.schedule.bits.rrfreeA }).orR
 
     //remap cache
-    //evict
-    sinkX.io.rx         <> remaper.io.evreq     ; remaper.io.evresp   <> sourceX.io.rx        //remaper  ---> sinkX    --> .... --> sourceX --> remaper
+    //remaper.xreq: flush or swap
+    sinkX.io.rx         <> remaper.io.xreq     ; remaper.io.evresp   <> sourceX.io.rx        //remaper  ---> sinkX    --> .... --> sourceX --> remaper
+    sinkX.io.blocksr    :=  RegNext(io.in.a.valid || io.in.c.valid) || !requests.io.empty        || //lowest prioirty
+                            directory.io.write.valid || !directory.io.write.ready || //can not inspect write fifo!! so wait write fifo drained
+                            Cat(mshrs.map { m => m.io.status.valid && ( m.io.status.bits.set === sinkX.io.sset) }).orR || remaper.io.mshrbusy || //can not inspect write fifo!! so swap req can not be pushed into requests
+                            RegNext((request.valid && request.bits.newset.valid) || (requests.io.pop.valid && requests.io.data.newset.valid)) //low prio than rereq(lowest prioirty)
+    //sinkX.io.blocksr    :=  directory.io.write.valid || !directory.io.write.ready || //can not inspect write fifo!! so wait write fifo drained
+    //                        Cat(mshrs.map { m => m.io.status.valid && ( m.io.status.bits.set === sinkX.io.sset) }).orR
+
     //swap directoryentry
     directory.io.rreq   <>  remaper.io.dereq    ; remaper.io.deresp  :=  directory.io.rresp   //remaper  ---> directory --> remaper
-    directory.io.newset :=  remaper.io.newset
     //swap datablock
     bankedStore.io.rreq <>  remaper.io.dbreq                                                  //remaper  ---> bankedStore
 
     //remaper scheduler status
-    remaper.io.schreq    := io.in.a.valid      || io.in.c.valid      ||  io.req.valid      ||
-                            sinkA.io.req.valid || sinkC.io.req.valid ||  sinkC.io.busy     ||  sinkX.io.req.valid ||
+    remaper.io.schreq    := io.in.a.valid      || io.in.c.valid      ||  io.req.valid       ||
+                            sinkA.io.req.valid || sinkC.io.req.valid ||  sinkX.io.req.valid ||
                             !requests.io.empty
-    remaper.io.schresp   := RegNext(!sourceD.io.idle || schedule.d.valid)
-    remaper.io.mshrbusy  := Cat(mshrs.map { m => m.io.status.valid   }.reverse).orR()
-    remaper.io.mshralloc := Cat(mshrs.map { m => m.io.allocate.valid }.reverse).orR()
-    remaper.io.mshrmatch := Cat(mshrs.map { m => m.io.status.valid && (m.io.status.bits.swz || m.io.status.bits.set === remaper.io.status.sset) }.reverse).orR()
-
-    //remaper config
-    remaper.io.config := io.config.remaper
+    remaper.io.mshrbusy  := Cat(mshrs.map { m => m.io.status.valid }.reverse).orR()
 
     //attack detector
     remaper.io.req   <> attackdetector.io.remap
@@ -431,13 +440,18 @@ class Scheduler(params: InclusiveCacheParameters) extends Module
     attackdetector.io.evict.valid  := io.pfcupdate.otlink.c_Done
 
     //ASSERT
+    when(sinkX.io.req.fire() && sinkX.io.req.bits.control && sinkX.io.req.bits.opcode === XOPCODE.SWAP) { 
+      assert(alloc_uses_directory)
+      assert(!mshr_uses_directory) 
+    }
+    when(will_pop) { assert(!(requests.io.data.control && requests.io.data.opcode === XOPCODE.SWAP)) }
     assert(!(directory.io.write.fire() && directory.io.write.bits.data.state  =/= MetaData.INVALID && remaper.io.status.oneloc && directory.io.write.bits.data.loc  =/= remaper.io.status.cloc))
     assert(!(directory.io.result.valid && directory.io.result.bits.state      =/= MetaData.INVALID && remaper.io.status.oneloc && directory.io.result.bits.loc      =/= remaper.io.status.cloc))
-    mshrs map { mshr => {
-      val timers  = RegInit(UInt(0, width = 8))
-      timers := Mux(mshr.io.status.valid, timers+1.U, 0.U)
-      assert(timers < 200.U) //deadlock?
-    }}
+    mshrs.zipWithIndex.foreach { case (m, i) =>
+      val timers  = RegInit(UInt(0, width = 12))
+      timers := Mux(m.io.status.valid, timers+1.U, 0.U)
+      assert(timers < 2000.U, "mshr_"+i+"deadlock?") //deadlock?
+    }
   } else {
 
   }

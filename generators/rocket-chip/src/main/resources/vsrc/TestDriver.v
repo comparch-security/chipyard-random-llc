@@ -64,7 +64,8 @@ module TestDriver;
     if ($value$plusargs("fsdbfile=%s", fsdbfile))
     begin
 `ifdef FSDB
-      $fsdbDumpfile(fsdbfile);
+      //$fsdbDumpfile(fsdbfile);
+      $fsdbAutoSwitchDumpfile(5000, fsdbfile, 100);
       $fsdbDumpvars("+all");
       //$fsdbDumpSVA;
 `else

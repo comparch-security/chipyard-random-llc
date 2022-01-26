@@ -180,7 +180,7 @@ uint64_t main (int argc, char *argv[])
   };
   for(sel=start; sel<=end; sel++) {
     if(sel==24) sel=25;   //24: 429.mcf
-    if(sel==41) sel=43;   //41: 433.zeusmp
+    if(sel==41) sel=42;   //41: 433.zeusmp
      pid = fork();
      if(pid==0) { //child
        chdir("/mnt/riscv-spec-ref");
