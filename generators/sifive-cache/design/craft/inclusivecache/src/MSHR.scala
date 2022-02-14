@@ -52,6 +52,7 @@ class MSHRStatus(params: InclusiveCacheParameters) extends InclusiveCacheBundle(
   val blockC = Bool()
   val nestC  = Bool()
   val nop    = Bool()
+  val disamb = Bool()
 }
 
 class NestedWriteback(params: InclusiveCacheParameters) extends InclusiveCacheBundle(params)
@@ -175,6 +176,7 @@ class MSHR(params: InclusiveCacheParameters) extends Module
   io.status.bits.way    := meta.way
   io.status.bits.swz    := meta.swz
   io.status.bits.nop    := !s_nop
+  io.status.bits.disamb := request.disamb
   io.status.bits.blockB := !meta_valid || ((!w_releaseack || !w_rprobeacklast || !w_pprobeacklast) && !w_grantfirst)
   io.status.bits.nestB  := meta_valid && w_releaseack && w_rprobeacklast && w_pprobeacklast && !w_grantfirst
   // The above rules ensure we will block and not nest an outer probe while still doing our

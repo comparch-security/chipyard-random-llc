@@ -80,7 +80,7 @@ class SourceC(params: InclusiveCacheParameters) extends Module
   io.evict_req.way := req.way
   io.evict_req.swz := req.swz
 
-  io.swap_safe     := !want_data || ((io.swap_req.way =/= req.way || io.swap_req.set =/= req.set) && io.swap_req.swz =/= req.swz)
+  io.swap_safe     := !want_data || ((io.swap_req.way =/= req.way || io.swap_req.set =/= req.set) && !(io.swap_req.swz && req.swz))
 
   io.bs_adr.valid := (beat.orR || io.evict_safe) && want_data
   io.bs_adr.bits.noop := Bool(false)

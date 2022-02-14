@@ -87,7 +87,7 @@ class SinkX(params: InclusiveCacheParameters) extends Module
     flush_arb.io.in(0)                     <> Queue(io.rereq, 1, pipe = false, flow = false)
     //firereq_flush   -> flush_arb
     flush_arb.io.in(1).valid               := x.valid && fldone
-    flush_arb.io.in(1).bits.opcode         := UInt(0)
+    flush_arb.io.in(1).bits.opcode         := XOPCODE.FLUSH
     flush_arb.io.in(1).bits.source         := UInt(0)
     flush_arb.io.in(1).bits.offset         := offset
     flush_arb.io.in(1).bits.newset.valid   := hset(1).valid

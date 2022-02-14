@@ -105,11 +105,11 @@ class Scheduler(params: InclusiveCacheParameters) extends Module
 
   // If the pre-emption BC or C MSHR have a matching set, the normal MSHR must be blocked
   val mshr_stall_abc = abc_mshrs.map { m =>
-    (bc_mshr.io.status.valid && m.io.status.bits.set === bc_mshr.io.status.bits.set) ||
-    ( c_mshr.io.status.valid && m.io.status.bits.set ===  c_mshr.io.status.bits.set)
+    (bc_mshr.io.status.valid && !bc_mshr.io.status.bits.disamb && m.io.status.bits.set === bc_mshr.io.status.bits.set) ||
+    ( c_mshr.io.status.valid && ! c_mshr.io.status.bits.disamb && m.io.status.bits.set ===  c_mshr.io.status.bits.set)
   }
   val mshr_stall_bc =
-    c_mshr.io.status.valid && bc_mshr.io.status.bits.set === c_mshr.io.status.bits.set
+    c_mshr.io.status.valid && !c_mshr.io.status.bits.disamb && bc_mshr.io.status.bits.set === c_mshr.io.status.bits.set
   val mshr_stall_c = Bool(false)
   val mshr_stall = mshr_stall_abc :+ mshr_stall_bc :+ mshr_stall_c
 
@@ -183,7 +183,7 @@ class Scheduler(params: InclusiveCacheParameters) extends Module
   sinkA.io.req.ready := directory.io.ready && request.ready && !sinkC.io.req.valid && !sinkX.io.req.valid
 
   // If no MSHR has been assigned to this set, we need to allocate one
-  val setMatches = Cat(mshrs.map { m => m.io.status.valid && m.io.status.bits.set === request.bits.set }.reverse)
+  val setMatches = Cat(mshrs.map { m => m.io.status.valid && !m.io.status.bits.disamb && m.io.status.bits.set === request.bits.set }.reverse)
   // when release's newhset is valid and oldhset Matches must disasmbiguate
   val disamb = !request.bits.prio(0) && setMatches.orR() && request.bits.newset.valid
   val alloc = !setMatches.orR() || disamb// NOTE: no matches also means no BC or C pre-emption on this set
@@ -415,17 +415,27 @@ class Scheduler(params: InclusiveCacheParameters) extends Module
     //remap cache
     //remaper.xreq: flush or swap
     sinkX.io.rx         <> remaper.io.xreq     ; remaper.io.evresp   <> sourceX.io.rx        //remaper  ---> sinkX    --> .... --> sourceX --> remaper
-    sinkX.io.blocksr    :=  RegNext(io.in.a.valid || io.in.c.valid) || !requests.io.empty        || //lowest prioirty
+    /*sinkX.io.blocksr    :=  RegNext(io.in.a.valid || io.in.c.valid) || !requests.io.empty        || //lowest prioirty
                             directory.io.write.valid || !directory.io.write.ready || //can not inspect write fifo!! so wait write fifo drained
                             Cat(mshrs.map { m => m.io.status.valid && ( m.io.status.bits.set === sinkX.io.sset) }).orR || remaper.io.mshrbusy || //can not inspect write fifo!! so swap req can not be pushed into requests
                             RegNext((request.valid && request.bits.newset.valid) || (requests.io.pop.valid && requests.io.data.newset.valid)) //low prio than rereq(lowest prioirty)
-    //sinkX.io.blocksr    :=  directory.io.write.valid || !directory.io.write.ready || //can not inspect write fifo!! so wait write fifo drained
-    //                        Cat(mshrs.map { m => m.io.status.valid && ( m.io.status.bits.set === sinkX.io.sset) }).orR
+    */
+    val dir_wque = Reg(Valid(new DirectoryWrite(params)))
+    when(directory.io.write.ready) {
+      dir_wque.valid := directory.io.write.valid
+      dir_wque.bits  := directory.io.write.bits
+    }
+    sinkX.io.blocksr    :=  (dir_wque.valid && dir_wque.bits.set === sinkX.io.sset) || //can not inspect write fifo!! so wait write fifo drained
+                            (Cat(mshrs.map { m => m.io.status.valid && ( m.io.status.bits.set === sinkX.io.sset) }).orR) ||
+                            (RegNext((request.valid           && request.bits.newset.valid     && request.bits.newset.bits     === sinkX.io.sset) ||
+                                     (requests.io.pop.valid   && requests.io.data.newset.valid && requests.io.data.newset.bits === sinkX.io.sset) )) //low prio than rereq(lowest prioirty)
 
     //swap directoryentry
-    directory.io.rreq   <>  remaper.io.dereq    ; remaper.io.deresp  :=  directory.io.rresp   //remaper  ---> directory --> remaper
+    directory.io.rreq     <>  remaper.io.dereq
+    remaper.io.deresp     :=  directory.io.rresp
+    directory.io.rfinish  := remaper.io.definish
     //swap datablock
-    bankedStore.io.rreq <>  remaper.io.dbreq                                                  //remaper  ---> bankedStore
+    bankedStore.io.rreq   <>  remaper.io.dbreq
 
     //remaper scheduler status
     remaper.io.schreq    := io.in.a.valid      || io.in.c.valid      ||  io.req.valid       ||
@@ -447,10 +457,23 @@ class Scheduler(params: InclusiveCacheParameters) extends Module
     when(will_pop) { assert(!(requests.io.data.control && requests.io.data.opcode === XOPCODE.SWAP)) }
     assert(!(directory.io.write.fire() && directory.io.write.bits.data.state  =/= MetaData.INVALID && remaper.io.status.oneloc && directory.io.write.bits.data.loc  =/= remaper.io.status.cloc))
     assert(!(directory.io.result.valid && directory.io.result.bits.state      =/= MetaData.INVALID && remaper.io.status.oneloc && directory.io.result.bits.loc      =/= remaper.io.status.cloc))
-    mshrs.zipWithIndex.foreach { case (m, i) =>
+    mshrs.zipWithIndex.foreach { case (m0, i0) =>
       val timers  = RegInit(UInt(0, width = 12))
-      timers := Mux(m.io.status.valid, timers+1.U, 0.U)
-      assert(timers < 2000.U, "mshr_"+i+"deadlock?") //deadlock?
+      timers := Mux(m0.io.status.valid, timers+1.U, 0.U)
+      assert(timers < 2000.U, "mshr_"+i0+"deadlock?") //deadlock?
+      mshrs.zipWithIndex.foreach { case (m1, i1) => { if(i0 < i1) {
+        val collide = RegNext(m0.io.allocate.valid || m1.io.allocate.valid)   &&
+                      m0.io.status.valid        &&   m1.io.status.valid       &&
+                      !m0.io.status.bits.disamb &&  !m1.io.status.bits.disamb &&
+                      m0.io.status.bits.set     ===  m1.io.status.bits.set
+        val legal_collide = (i0.U >= abc_mshrs.length.U || i1.U >= abc_mshrs.length.U) &&
+                            (RegNext((m0.io.allocate.valid && Mux(i0.U === abc_mshrs.length.U, nestB, nestC))   ||
+                                     (m1.io.allocate.valid && Mux(i1.U === abc_mshrs.length.U, nestB, nestC)))) //nestB or nestC
+        when(collide && !legal_collide) {
+          printf("illegal collide at set_%x: mshr_%x tag_%x swz_%x and mshr_%x tag_%x swz_%x\n",m0.io.status.bits.set, i0.U, m0.io.status.bits.tag, m0.io.status.bits.swz, i1.U, m1.io.status.bits.tag, m1.io.status.bits.swz)
+          assert(legal_collide)
+        }
+      }}}
     }
   } else {
 

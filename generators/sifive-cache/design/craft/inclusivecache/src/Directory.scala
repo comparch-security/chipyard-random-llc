@@ -68,6 +68,7 @@ class Directory(params: InclusiveCacheParameters) extends Module
     //remaper
     val rreq     = Decoupled(new SwaperReq(params)).flip
     val rresp    = Valid(new SwaperResp(params))
+    val rfinish  = Valid(UInt(width = params.setBits)).flip
   }
 
   val codeBits = new DirectoryEntry(params).getWidth
@@ -78,6 +79,7 @@ class Directory(params: InclusiveCacheParameters) extends Module
   io.rreq.ready        := swaper.io.rreq.ready
   io.rresp.valid       := swaper.io.rresp.valid
   io.rresp.bits        := swaper.io.rresp.bits
+  swaper.io.rfinish    := io.rfinish
 
   val (cc_dir, omSRAM) =  DescribedSRAM(
     name = "cc_dir",
@@ -165,10 +167,11 @@ class Directory(params: InclusiveCacheParameters) extends Module
   val setQuash = bypass_valid && bypass.set === set
   val tagMatch = bypass.data.tag === tag
   val wayMatch = bypass.way === victimWay
+  val invBlock = swaper.io.invblk.valid && swaper.io.invblk.bits.set === set
 
   val ways = Vec(regout.map(d => new DirectoryEntry(params).fromBits(d)))
   val hits = Cat(ways.zipWithIndex.map { case (w, i) =>
-    w.tag === tag && w.state =/= INVALID && (!setQuash || UInt(i) =/= bypass.way)
+    w.tag === tag && w.state =/= INVALID && (!setQuash || UInt(i) =/= bypass.way) && (!invBlock || UInt(i) =/= swaper.io.invblk.bits.way)
   }.reverse)
   val hit = hits.orR()
 

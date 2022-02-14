@@ -379,23 +379,23 @@ class SourceD(params: InclusiveCacheParameters) extends Module
 
   // Must ReleaseData=> be interlocked? RaW hazard
   io.evict_safe :=
-    (!busy    || io.evict_req.way =/= s1_req_reg.way || io.evict_req.set =/= s1_req_reg.set || io.evict_req.swz =/= s1_req_reg.swz)  &&
-    (!s2_full || io.evict_req.way =/= s2_req.way     || io.evict_req.set =/= s2_req.set     || io.evict_req.swz =/= s2_req.swz)      &&
-    (!s3_full || io.evict_req.way =/= s3_req.way     || io.evict_req.set =/= s3_req.set     || io.evict_req.swz =/= s3_req.swz)      &&
-    (!s4_full || io.evict_req.way =/= s4_req.way     || io.evict_req.set =/= s4_req.set     || io.evict_req.swz =/= s4_req.swz)
+    (!busy    || ((io.evict_req.way =/= s1_req_reg.way || io.evict_req.set =/= s1_req_reg.set) && !(io.evict_req.swz && s1_req_reg.swz)))  &&
+    (!s2_full || ((io.evict_req.way =/= s2_req.way     || io.evict_req.set =/= s2_req.set    ) && !(io.evict_req.swz && s2_req.swz    )))  &&
+    (!s3_full || ((io.evict_req.way =/= s3_req.way     || io.evict_req.set =/= s3_req.set    ) && !(io.evict_req.swz && s3_req.swz    )))  &&
+    (!s4_full || ((io.evict_req.way =/= s4_req.way     || io.evict_req.set =/= s4_req.set    ) && !(io.evict_req.swz && s4_req.swz    )))
 
   // Must =>GrantData be interlocked? WaR hazard
   io.grant_safe :=
-    (!busy    || io.grant_req.way =/= s1_req_reg.way || io.grant_req.set =/= s1_req_reg.set || io.grant_req.swz =/= s1_req_reg.swz)  &&
-    (!s2_full || io.grant_req.way =/= s2_req.way     || io.grant_req.set =/= s2_req.set     || io.grant_req.swz =/= s2_req.swz)      &&
-    (!s3_full || io.grant_req.way =/= s3_req.way     || io.grant_req.set =/= s3_req.set     || io.grant_req.swz =/= s3_req.swz)      &&
-    (!s4_full || io.grant_req.way =/= s4_req.way     || io.grant_req.set =/= s4_req.set     || io.grant_req.swz =/= s4_req.swz)
+    (!busy    || ((io.grant_req.way =/= s1_req_reg.way || io.grant_req.set =/= s1_req_reg.set) && !(io.grant_req.swz && s1_req_reg.swz)))  &&
+    (!s2_full || ((io.grant_req.way =/= s2_req.way     || io.grant_req.set =/= s2_req.set    ) && !(io.grant_req.swz && s2_req.swz    )))  &&
+    (!s3_full || ((io.grant_req.way =/= s3_req.way     || io.grant_req.set =/= s3_req.set    ) && !(io.grant_req.swz && s3_req.swz    )))  &&
+    (!s4_full || ((io.grant_req.way =/= s4_req.way     || io.grant_req.set =/= s4_req.set    ) && !(io.grant_req.swz && s4_req.swz    )))
 
   io.swap_safe :=
-    (!busy    ||((io.swap_req.way =/= s1_req_reg.way || io.swap_req.set =/= s1_req_reg.set) &&  io.swap_req.swz =/= s1_req_reg.swz)) &&
-    (!s2_full ||((io.swap_req.way =/= s2_req.way     || io.swap_req.set =/= s2_req.set)     &&  io.swap_req.swz =/= s2_req.swz))     &&
-    (!s3_full ||((io.swap_req.way =/= s3_req.way     || io.swap_req.set =/= s3_req.set)     &&  io.swap_req.swz =/= s3_req.swz))     &&
-    (!s4_full ||((io.swap_req.way =/= s4_req.way     || io.swap_req.set =/= s4_req.set)     &&  io.swap_req.swz =/= s4_req.swz))
+    (!busy    || ((io.swap_req.way =/= s1_req_reg.way  || io.swap_req.set =/= s1_req_reg.set ) && !(io.swap_req.swz  && s1_req_reg.swz)))  &&
+    (!s2_full || ((io.swap_req.way =/= s2_req.way      || io.swap_req.set =/= s2_req.set     ) && !(io.swap_req.swz  && s2_req.swz    )))  &&
+    (!s3_full || ((io.swap_req.way =/= s3_req.way      || io.swap_req.set =/= s3_req.set     ) && !(io.swap_req.swz  && s3_req.swz    )))  &&
+    (!s4_full || ((io.swap_req.way =/= s4_req.way      || io.swap_req.set =/= s4_req.set     ) && !(io.swap_req.swz  && s4_req.swz    )))
 
   // SourceD cannot overlap with SinkC b/c the only way inner caches could become
   // dirty such that they want to put data in via SinkC is if we Granted them permissions,
