@@ -155,6 +155,7 @@ class MSHR(id: Int)(implicit edge: TLEdgeOut, p: Parameters) extends L1HellaCach
     val replay = Decoupled(new ReplayInternal)
     val wb_req = Decoupled(new WritebackReq(edge.bundle))
     val probe_rdy = Bool(OUTPUT)
+    val rel_beats =  UInt(width = log2Up(refillCycles+1)).asInput
   }
 
   val s_invalid :: s_wb_req :: s_wb_resp :: s_meta_clear :: s_refill_req :: s_refill_resp :: s_meta_write_req :: s_meta_write_resp :: s_drain_rpq :: Nil = Enum(UInt(), 9)
@@ -190,9 +191,9 @@ class MSHR(id: Int)(implicit edge: TLEdgeOut, p: Parameters) extends L1HellaCach
   rpq.io.enq.bits := io.req_bits
   rpq.io.deq.ready := (io.replay.ready && state === s_drain_rpq) || state === s_invalid
 
-  val needwb = Reg(Bool())
-  val acked = Reg(Bool())
-  when (io.mem_grant.valid && !edge.isRequest(io.mem_grant.bits)) { acked := true } //writeback resp from l2
+  val needwb = RegInit(false.B)
+  val acked  = RegInit(false.B)
+  when (io.mem_grant.valid && !edge.isRequest(io.mem_grant.bits)) { acked := true; needwb := false } //writeback resp from l2
 
   when (state === s_drain_rpq && !rpq.io.deq.valid) {
     state := s_invalid
@@ -218,7 +219,7 @@ class MSHR(id: Int)(implicit edge: TLEdgeOut, p: Parameters) extends L1HellaCach
     state := s_meta_clear
   }
   when (io.wb_req.fire()) { // s_wb_req
-    state := s_wb_resp
+    state := s_meta_clear
   }
   when (io.req_sec_val && io.req_sec_rdy) { // s_wb_req, s_wb_resp, s_refill_req
     //If we get a secondary miss that needs more permissions before we've sent
@@ -284,7 +285,7 @@ class MSHR(id: Int)(implicit edge: TLEdgeOut, p: Parameters) extends L1HellaCach
   io.wb_req.bits.way_en := req.way_en
   io.wb_req.bits.voluntary := Bool(true)
 
-  io.mem_acquire.valid := state === s_refill_req && grantackq.io.enq.ready
+  io.mem_acquire.valid := state === s_refill_req && grantackq.io.enq.ready && (!needwb || io.wb_req.ready || io.rel_beats > 0.U)
   io.mem_acquire.bits := edge.AcquireBlock(
                                 fromSource = UInt(id),
                                 toAddress = Cat(io.tag, req_idx) << blockOffBits,
@@ -325,6 +326,7 @@ class MSHRFile(implicit edge: TLEdgeOut, p: Parameters) extends L1HellaCacheModu
     val probe_rdy = Bool(OUTPUT)
     val fence_rdy = Bool(OUTPUT)
     val replay_next = Bool(OUTPUT)
+    val rel_beats =  UInt(width = log2Up(refillCycles+1)).asInput
   }
 
   // determine if the request is cacheable or not
@@ -382,6 +384,8 @@ class MSHRFile(implicit edge: TLEdgeOut, p: Parameters) extends L1HellaCacheModu
     pri_rdy = pri_rdy || mshr.io.req_pri_rdy
     sec_rdy = sec_rdy || mshr.io.req_sec_rdy
     idx_match = idx_match || mshr.io.idx_match
+
+    mshr.io.rel_beats := io.rel_beats
 
     when (!mshr.io.req_pri_rdy) { io.fence_rdy := false }
     when (!mshr.io.probe_rdy) { io.probe_rdy := false }
@@ -452,6 +456,7 @@ class WritebackUnit(implicit edge: TLEdgeOut, p: Parameters) extends L1HellaCach
     val data_req = Decoupled(new L1DataReadReq)
     val data_resp = Bits(INPUT, encRowBits)
     val release = Decoupled(new TLBundleC(edge.bundle))
+    val rel_beats =  UInt(width = log2Up(refillCycles+1)).asOutput
   }
 
   val req = Reg(new WritebackReq(edge.bundle))
@@ -520,6 +525,7 @@ class WritebackUnit(implicit edge: TLEdgeOut, p: Parameters) extends L1HellaCach
                           data = io.data_resp)._2
                           
   io.release.bits := Mux(req.voluntary, voluntaryRelease, probeResponse)
+  io.rel_beats := beat_count
 }
 
 class ProbeUnit(implicit edge: TLEdgeOut, p: Parameters) extends L1HellaCacheModule()(p) {
@@ -810,11 +816,13 @@ class NonBlockingDCacheModule(outer: NonBlockingDCache) extends HellaCacheModule
   readArb.io.in(0).bits.way_en := ~UInt(0, nWays)
 
   // tag check and way muxing
+  val s1_wb_way_en = RegNext(Mux(wb.io.data_req.fire() && wb.io.meta_read.fire(), wb.io.data_req.bits.way_en, 0.U))
   def wayMap[T <: Data](f: Int => T) = Vec((0 until nWays).map(f))
   val s1_tag_eq_way = wayMap((w: Int) => meta.io.resp(w).tag === (s1_addr >> untagBits)).asUInt
   val s1_tag_match_way = wayMap((w: Int) => s1_tag_eq_way(w) && meta.io.resp(w).coh.isValid()).asUInt
   s1_clk_en := metaReadArb.io.out.valid //TODO: should be metaReadArb.io.out.fire(), but triggers Verilog backend bug
   val s1_writeback = s1_clk_en && !s1_valid && !s1_replay
+  val s2_data_sel = RegNext(Mux(s1_wb_way_en === 0.U, s1_tag_match_way, s1_wb_way_en))
   val s2_tag_match_way = RegEnable(s1_tag_match_way, s1_clk_en)
   val s2_tag_match = s2_tag_match_way.orR
   val s2_hit_state = Mux1H(s2_tag_match_way, wayMap((w: Int) => RegEnable(meta.io.resp(w).coh, s1_clk_en)))
@@ -845,14 +853,14 @@ class NonBlockingDCacheModule(outer: NonBlockingDCache) extends HellaCacheModule
   val s2_data = Wire(Vec(nWays, Bits(width=encRowBits)))
   for (w <- 0 until nWays) {
     val regs = Reg(Vec(rowWords, Bits(width = encDataBits)))
-    val en1 = s1_clk_en && s1_tag_eq_way(w)
+    val en1 = (s1_clk_en && s1_tag_eq_way(w)) || s1_wb_way_en(w)
     for (i <- 0 until regs.size) {
       val en = en1 && ((Bool(i == 0) || !Bool(doNarrowRead)) || s1_writeback)
       when (en) { regs(i) := data.io.resp(w) >> encDataBits*i }
     }
     s2_data(w) := regs.asUInt
   }
-  val s2_data_muxed = Mux1H(s2_tag_match_way, s2_data)
+  val s2_data_muxed = Mux1H(s2_data_sel, s2_data)
   val s2_data_decoded = (0 until rowWords).map(i => dECC.decode(s2_data_muxed(encDataBits*(i+1)-1,encDataBits*i)))
   val s2_data_corrected = s2_data_decoded.map(_.corrected).asUInt
   val s2_data_uncorrected = s2_data_decoded.map(_.uncorrected).asUInt
@@ -889,6 +897,7 @@ class NonBlockingDCacheModule(outer: NonBlockingDCache) extends HellaCacheModule
   mshrs.io.req.bits.data := s2_req.data
   when (mshrs.io.req.fire()) { replacer.miss }
   tl_out.a <> mshrs.io.mem_acquire
+  mshrs.io.rel_beats := wb.io.rel_beats
 
   // replays
   readArb.io.in(1).valid := mshrs.io.replay.valid

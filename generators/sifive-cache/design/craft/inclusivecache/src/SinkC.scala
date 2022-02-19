@@ -46,6 +46,9 @@ class SinkC(params: InclusiveCacheParameters) extends Module
     val c = Decoupled(new TLBundleC(params.inner.bundle)).flip
     val rereq   = Decoupled(new FullRequest(params)).flip
     val rrfree  = Bool().asInput //free rereq zone
+    val sinkA_safe  = Bool().asOutput
+    val sinkAD_safe = UInt(width = 1 << params.inner.bundle.sourceBits).asOutput
+    val set_sinkAD_safe = Valid(UInt(width = params.inner.bundle.sourceBits)).asInput
     // Find 'set' 'way' and 'swz' via MSHR CAM lookup
     val sink   = UInt(width = params.outer.bundle.sinkBits)
     val set    = UInt(width = params.setBits).flip
@@ -74,16 +77,33 @@ class SinkC(params: InclusiveCacheParameters) extends Module
   } else {
     // No restrictions on the type of buffer
     val cin     = Wire(new DecoupledIO(io.c.bits))
-    cin.valid  := io.c.valid
+    cin.valid  := io.c.valid //&&  nbreq.io.c.ready
     cin.bits   := io.c.bits
     io.c.ready := cin.ready  // cin.ready := c.io.enq.ready
     val c = params.micro.innerBuf.c(cin)
 
-    val (tag, set, offset) = params.parseAddress(c.bits.address)
-    val (first, last, _, beat) = params.inner.count(c)
-    val hasData = params.inner.hasData(c.bits)
-    val raw_resp = c.bits.opcode === TLMessages.ProbeAck || c.bits.opcode === TLMessages.ProbeAckData
+    val (    tag,     set,     offset) = params.parseAddress(c.bits.address)
+    val (cin_tag, cin_set, cin_offset) = params.parseAddress(cin.bits.address)
+    val (    first,     last, _,     beat) = params.inner.count(c)
+    val (cin_first, cin_last, _, cin_beat) = params.inner.count(cin)
+    val     hasData = params.inner.hasData(c.bits)
+    val cin_hasData = params.inner.hasData(cin.bits)
+    val     raw_resp = c.  bits.opcode === TLMessages.ProbeAck || c.  bits.opcode === TLMessages.ProbeAckData
+    val cin_raw_resp = cin.bits.opcode === TLMessages.ProbeAck || cin.bits.opcode === TLMessages.ProbeAckData
     val resp = Mux(c.valid, raw_resp, RegEnable(raw_resp, c.valid))
+
+    //safe sinkA req and safe sinkA->sinkD req
+    val sinkA_safe  = RegInit(true.B)
+    val sinkAD_safe = RegInit(~UInt(0, width = 1 << params.inner.bundle.sourceBits))             
+    when(c.fire()   &&     first && !    raw_resp) { sinkA_safe := true.B  }
+    when(io.c.valid && cin_first && !cin_raw_resp) { sinkA_safe := false.B }
+
+    sinkAD_safe := (sinkAD_safe |
+                    Mux(io.set_sinkAD_safe.valid,                 UIntToOH(io.set_sinkAD_safe.bits), UInt(0))) & // set_sourceD_safe
+                   ~Mux(io.c.valid && cin_first && !cin_raw_resp, UIntToOH(cin.bits.source),         UInt(0))    // clr_sourceD_safe
+    io.sinkA_safe  :=  sinkA_safe
+    io.sinkAD_safe :=  sinkAD_safe
+
 
     // Handling of C is broken into two cases:
     //   ProbeAck
@@ -175,11 +195,16 @@ class SinkC(params: InclusiveCacheParameters) extends Module
 
     if(params.remap.en) {
       req_block := false.B  //no block data flow
-
+      val rereq_entries = params.relLists
       val nbreq   = Module(new NBSinkCReq(params))
       val reqarb  = Module(new Arbiter(io.req.bits.cloneType, 2))
-      val rrbook  = RegInit(false.B) //book a rereq fifo space
-      val block   = buf_block || set_block
+      val rrbook  = RegInit(UInt(0, width = rereq_entries)) //book a rereq fifo space
+      val block   = (c.valid && !raw_resp && set_block) || rrbook(rereq_entries-1)
+      val rrbook_shiftl = (reqarb.io.in(1).fire() &&  reqarb.io.in(1).bits.newset.valid).asUInt
+      val rrbook_shiftr = (reqarb.io.in(0).fire() && !reqarb.io.in(0).bits.newset.valid).asUInt + Cat(0.U, io.rrfree)
+
+      rrbook := rrbook << rrbook_shiftl >> rrbook_shiftr
+      when(rrbook === 0.U && rrbook_shiftl.asBool()) { rrbook := 1.U }
 
       //io.c
       cin.valid             :=  io.c.valid  &&  nbreq.io.c.ready
@@ -193,28 +218,21 @@ class SinkC(params: InclusiveCacheParameters) extends Module
       io.rtab.req           <> nbreq.io.rtab.req
       nbreq.io.rtab.resp    := io.rtab.resp
 
-      //io.req
-      io.req.valid          :=  nbreq.io.req.valid && !block
-      io.req.bits           :=  nbreq.io.req.bits
-      io.req.bits.put       :=  put
-      
-      when( io.rrfree                                                    ) { rrbook := false.B }
-      when( reqarb.io.in(0).fire() && !reqarb.io.in(0).bits.newset.valid ) { rrbook := false.B }
-      when( reqarb.io.in(1).fire() &&  reqarb.io.in(1).bits.newset.valid ) { rrbook := true.B  }
-
       //rereq
-      reqarb.io.in(0)                     <> Queue(io.rereq, 1, pipe = false, flow = false)
+      reqarb.io.in(0)                     <> Queue(io.rereq, rereq_entries, pipe = false, flow = false)
       //firstreq
-      reqarb.io.in(1).valid               := nbreq.io.req.valid && !block && !rrbook
+      reqarb.io.in(1).valid               := nbreq.io.req.valid && !block
       reqarb.io.in(1).bits                := nbreq.io.req.bits
       reqarb.io.in(1).bits.put            := put
-      nbreq.io.req.ready                  := io.req.ready && !block && !rrbook
+      nbreq.io.req.ready                  := reqarb.io.in(1).ready && !block
 
       io.req.valid                        := reqarb.io.out.valid
       io.req.bits                         := reqarb.io.out.bits
       io.req.bits.prio                    := Vec(UInt(4, width=3).asBools)
       io.req.bits.control                 := Bool(false)
       reqarb.io.out.ready                 := io.req.ready
+
+      io.sinkA_safe                       := sinkA_safe && !nbreq.io.busy
 
       io.busy                             := io.c.valid || c.valid || nbreq.io.busy || putbuffer.io.valid =/= 0.U
 

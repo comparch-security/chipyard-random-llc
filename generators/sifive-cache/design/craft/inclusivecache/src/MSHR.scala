@@ -53,6 +53,7 @@ class MSHRStatus(params: InclusiveCacheParameters) extends InclusiveCacheBundle(
   val nestC  = Bool()
   val nop    = Bool()
   val disamb = Bool()
+  val deadlock = Bool()
 }
 
 class NestedWriteback(params: InclusiveCacheParameters) extends InclusiveCacheBundle(params)
@@ -145,6 +146,7 @@ class MSHR(params: InclusiveCacheParameters) extends Module
   val s_writeback      = RegInit(Bool(true)) // W  w_*
   val s_swap           = RegInit(Bool(true))
   val s_nop            = RegInit(Bool(true))
+  val w_timer          = RegInit(UInt(0, width = 16))
   val no_wait          = w_rprobeacklast && w_releaseack && w_grantlast && w_pprobeacklast && w_grantack
 
   // [1]: We cannot issue outer Acquire while holding blockB (=> outA can stall)
@@ -186,6 +188,22 @@ class MSHR(params: InclusiveCacheParameters) extends Module
   // The w_grantfirst in nestC is necessary to deal with:
   //   acquire waiting for grant, inner release gets queued, outer probe -> inner probe -> deadlock
   // ... this is possible because the release+probe can be for same set, but different tag
+  io.status.bits.deadlock  := false.B
+  when(w_timer > 8192.U) {
+    io.status.bits.deadlock  := true.B
+    printf("request tag_%x      set_%x           newset_%x_%x                                prio_%x,             control_%x\n", 
+            request.tag,        request.set,     request.newset.valid,  request.newset.bits, request.prio.asUInt, request.control)
+    printf("request opcode_%x   param_%x         size_%x        source_%x       offset_%x       put_%x,      repeat_%x,      disamb_%x\n",
+            request.opcode,     request.param,   request.size,  request.source, request.offset, request.put, request.repeat, request.disamb)
+    printf("w_rprobeacklast_%x, w_releaseack_%x, w_grantlast_%x, w_pprobeacklast_%x, w_grantack_%x\n",
+            w_rprobeacklast,    w_releaseack,    w_grantlast,    w_pprobeacklast,    w_grantack)
+    printf("io.schedule.bits.a_%x,       io.schedule.bits.b_%x,      io.schedule.bits.c_%x\n" ,
+            io.schedule.bits.a.valid,    io.schedule.bits.b.valid,   io.schedule.bits.c.valid)
+    printf("io.schedule.bits.d_%x,       io.schedule.bits.e_%x,      io.schedule.bits.x_%x\n" ,
+            io.schedule.bits.d.valid,    io.schedule.bits.e.valid,   io.schedule.bits.x.valid)
+    printf("io.schedule.bits.dir_%x,     io.schedule.bits.rmp_%x,    s_nop_%x             \n" ,
+            io.schedule.bits.dir.valid,  io.schedule.bits.rmp.valid, s_nop                   )
+  }
 
   // We can only demand: block, nest, or queue
   assert (!io.status.bits.nestB || !io.status.bits.blockB)
@@ -224,6 +242,8 @@ class MSHR(params: InclusiveCacheParameters) extends Module
       meta_valid := Bool(false)
     }
   }
+  w_timer := Mux(request_valid, w_timer+1.U, 0.U)
+
 
   // Resulting meta-data
   val final_meta_writeback = Wire(init = meta)
@@ -334,7 +354,7 @@ class MSHR(params: InclusiveCacheParameters) extends Module
   io.schedule.bits.dir.bits.mta   := meta.stm //swap zone to mshr(and then to array)
   io.schedule.bits.dir.bits.data  := Mux(!s_release, invalid, Wire(new DirectoryEntry(params), init = final_meta_writeback))
   //!io.directory.bits.hit:  when using the oldset index results in a miss, rereq using the newset index
-  // io.directory.bits.swz:  when using the oldset index results in a hit at swz, wait direntry swapped to newset
+  // io.directory.bits.swz:  when using the oldset index results in a hit at swz, wait directory swapped to newset
   // request.disamb       :  rereq using the disambiguated index
   io.schedule.bits.rereq.valid             := Bool(params.remap.en) && request.newset.valid && io.directory.valid && 
                                               (!io.directory.bits.hit || io.directory.bits.swz || request.disamb)
@@ -574,12 +594,14 @@ class MSHR(params: InclusiveCacheParameters) extends Module
 
   when (io.allocate.valid) {
     assert (!request_valid || (no_wait && io.schedule.fire()))
+    w_timer := 0.U
     request_valid := Bool(true)
     request := io.allocate.bits
     when(io.allocate.bits.repeat) { assert(!io.allocate.bits.disamb) }
     assert (!io.allocate.bits.newset.valid || (io.allocate.bits.newset.bits =/= io.allocate.bits.set))
   }
   when(io.directory.valid && io.directory.bits.hit) { request.newset.valid := false.B }
+  when(RegNext(io.allocate.valid && io.allocate.bits.control && io.allocate.bits.opcode === XOPCODE.SWAP)) { assert(io.directory.valid) } //swap must read dir
 
   // Create execution plan
   when (io.directory.valid || (io.allocate.valid && io.allocate.bits.repeat)) {

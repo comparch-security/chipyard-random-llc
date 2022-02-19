@@ -19,6 +19,8 @@ OUTPUT_ARCH( "riscv" )
 
 SECTIONS
 {
+  . = 0x20000;
+  .text.start : { *(.text.start) }
   . = 0x2f000;
   .tohost : { *(.tohost) }
 }

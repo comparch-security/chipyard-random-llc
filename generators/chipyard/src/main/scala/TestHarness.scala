@@ -47,7 +47,7 @@ class TestHarness(implicit val p: Parameters) extends Module with HasHarnessSign
   val harnessReset = WireInit(reset.asBool() | sys_rst)
   val success = io.success
 
-  val dutReset = reset.asAsyncReset
+  val dutReset = (reset.asBool() | sys_rst).asAsyncReset
 
 
 
