@@ -82,6 +82,7 @@ static int interpret(struct osd_context *ctx, char *line) {
         }
     } else if (CHECK_MATCH(cmd, "mem")) {
         char *subcmd = strtok(NULL, " ");
+        osd_close_mempfc(ctx, mem);
 
         if (CHECK_MATCH(subcmd, "help")) {
             PRINT_HELP(mem);
@@ -135,7 +136,6 @@ static int interpret(struct osd_context *ctx, char *line) {
             }
 
             if(halt) osd_reset_system(ctx, 1);
-            osd_close_mempfc(ctx, mem);
             printf("Verify: %d\n", verify);
             osd_memory_loadelf(ctx, mem, file, verify);
             if(run)  osd_start_cores(ctx);

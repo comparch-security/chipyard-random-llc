@@ -73,10 +73,12 @@ class OSDMAM(implicit p: Parameters) extends LazyModule {
     val busy        = RegInit(false.B)
     val putlegal    = RegInit(true.B)
     val getlegal    = RegInit(true.B)
-    val rwaitacks   = RegInit(0.U(3.W))
-    val rinflights  = RegInit(0.U(3.W))
-    val wwaitacks   = RegInit(0.U(3.W))
-    val winflights  = RegInit(0.U(3.W))
+    val srcID       = Reg(mem.a.bits.source)
+    val srcIDv      = RegInit(~0.U((1 << srcID.getWidth).W))  //only used for write
+    val rwaitacks   = RegInit(0.U((srcID.getWidth + 1).W))
+    val rinflights  = RegInit(0.U((srcID.getWidth + 1).W))
+    val wwaitacks   = RegInit(0.U((srcID.getWidth + 1).W))
+    val winflights  = RegInit(0.U((srcID.getWidth + 1).W))
 
     val rs0_dq      = Module(new Queue(mem.d.bits,     4))    //width  read data Queue <--  fbus
     val rs2_dq      = Module(new Queue(io.wdata.bits, 32))    //narrow read data Queue -->  osd_mam
@@ -107,13 +109,16 @@ class OSDMAM(implicit p: Parameters) extends LazyModule {
     val pfcclient = Module(new OSDPFCClient(p(freechips.rocketchip.subsystem.RocketTilesKey).length, enpfc))
     // -------------req   stage-----------------------//
     io.req.ready := !busy
-    rwaitacks    := rwaitacks  - mem.d.fire() + mem.a.fire()
-    rinflights   := rinflights + mem.a.fire()
-    wwaitacks    := wwaitacks  - mem.d.fire() + mem.a.fire()
-    winflights   := winflights + mem.a.fire()
+    rwaitacks    := rwaitacks  - (mem.d.fire() && !req.rw).asUInt() + (mem.a.fire() && !req.rw).asUInt()
+    rinflights   := rinflights + (mem.a.fire() && !req.rw).asUInt()
+    wwaitacks    := wwaitacks  - (mem.d.fire() &&  req.rw).asUInt() + (mem.a.fire() &&  req.rw).asUInt()
+    winflights   := winflights + (mem.a.fire() &&  req.rw).asUInt()
+    srcID        := srcID + (mem.a.fire() && req.rw).asUInt()
+    srcIDv       := (srcIDv & Mux(mem.a.fire() && req.rw, ~UIntToOH(mem.a.bits.source), ~0.U((1 << srcID.getWidth).W))) | Mux(mem.d.fire() && req.rw, UIntToOH(mem.d.bits.source), 0.U)
     when(io.req.fire()) {
       req         := io.req.bits
       busy        := true.B
+      srcID       := 0.U
       rwaitacks   := 0.U
       rinflights  := 0.U
       wwaitacks   := 0.U
@@ -201,22 +206,22 @@ class OSDMAM(implicit p: Parameters) extends LazyModule {
     ws2_dq.io.enq.valid     := ws1_valid
     ws2_dq.io.enq.bits.data := ws1_data.asUInt
     ws2_dq.io.enq.bits.mask := ws1_mask.asUInt
-    ws2_dq.io.deq.ready     := mem.a.ready
+    ws2_dq.io.deq.ready     := mem.a.ready && srcIDv(srcID)
 
     // ------------- mem stage -----------------------//
     val memget = edge.Get(
-          fromSource = rinflights,  //inflights
+          fromSource = 0.U,  //inflights
           toAddress  = Cat(req.addr >> lgmem_dwB, 0.U(lgmem_dwB.W)), //must align
           lgSize     = lgmem_dwB.U)
     val memput = edge.Put(
-          fromSource = winflights,  //inflights
+          fromSource = srcID,  //inflights
           toAddress  = Cat(req.addr >> lgmem_dwB, 0.U(lgmem_dwB.W)), //must align
           lgSize     = lgmem_dwB.U,
           data       = ws2_dq.io.deq.bits.data,
           mask       = ws2_dq.io.deq.bits.mask,
           corrupt    = false.B)
     mem.a.bits      := Mux(req.rw, memput._2, memget._2)
-    mem.a.valid     := Mux(req.rw, ws2_dq.io.deq.valid & (wwaitacks < 7.U), rs1_busy & (rwaitacks < 1.U) & (req.addr < req_endaddr)) & !req.pfc
+    mem.a.valid     := Mux(req.rw, ws2_dq.io.deq.valid, rs1_busy & (rwaitacks < 1.U) & (req.addr < req_endaddr)) & !req.pfc & srcIDv(srcID)
     mem.d.ready     := Mux(req.rw, true.B,  rs0_dq.io.enq.ready)
     /*when(mem.a.valid) {
       when(req.rw  & putlegal) { putlegal := memput._1 }

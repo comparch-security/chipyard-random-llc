@@ -77,6 +77,7 @@ static int memory_test(struct osd_context *ctx, uint16_t mod,
     for (size_t i = 0; i < size; i++) {
         if (wdata[i] != rdata[i]) {
             printf("Test 0 failed\n");
+            free(wdata);  free(rdata);
             return -1;
         }
     }
@@ -92,6 +93,7 @@ static int memory_test(struct osd_context *ctx, uint16_t mod,
     for (size_t i = 0; i < size; i++) {
         if (wdata[i] != rdata[i]) {
             printf("Test 1 failed\n");
+            free(wdata);  free(rdata);
             return -1;
         }
     }
@@ -124,6 +126,7 @@ static int memory_test(struct osd_context *ctx, uint16_t mod,
             if (wdata[i] != rdata[i]) {
                 printf(" failed at address 0x%lx: wrote 0x%x, read 0x%x\n",
                        chunk_addr_start + i, wdata[i], rdata[i]);
+                free(wdata);  free(rdata);
                 return -1;
             }
         }
@@ -164,7 +167,7 @@ static int memory_test(struct osd_context *ctx, uint16_t mod,
 //    }
 //
 //    printf("Test 2 passed\n");
-
+    free(wdata);  free(rdata);
     return 0;
 }
 
@@ -183,6 +186,12 @@ int memory_tests(struct osd_context *ctx) {
     for (size_t m = 0; m < num_memories; m++) {
         printf("Test memory connected to MAM with ID %d\n", memories[m]);
         if (memory_test(ctx, memories[m], 0) != 0) {
+            printf("Failed\n");
+            success = 0;
+        } else {
+            printf("Passed\n");
+        }
+        if (memory_test(ctx, memories[m], 1) != 0) {
             printf("Failed\n");
             success = 0;
         } else {
