@@ -142,19 +142,18 @@ class GENESYS2FPGATestHarnessImp(_outer: GENESYS2FPGATestHarness) extends LazyRa
   }
 
   //rst from osd
-  var sys_rst = WireInit((~(_outer.pllFactory.plls.getWrappedValue(0)._1.getLocked)).asInstanceOf[Reset]) //getLocked active high
+  val pllLocked = _outer.pllFactory.plls.getWrappedValue(0)._1.getLocked
+  var sys_rst = WireInit((~pllLocked).asInstanceOf[Reset]) //getLocked active high
   if(_outer.topDesign.asInstanceOf[ChipTop].lazySystem.isInstanceOf[freechips.rocketchip.osd.HasOSDMAM]) {
     _outer.topDesign.module.asInstanceOf[LazyRawModuleImp].getPorts.foreach { ports =>
-      if(ports.id.toNamed.name == "sys_rst") { sys_rst = WireInit(ports.id.asInstanceOf[Reset]) }
+      if(ports.id.toNamed.name == "sys_rst") { sys_rst = WireInit((ports.id.asInstanceOf[Reset].asBool() || ~pllLocked).asInstanceOf[Reset]) }
   }}
   if(_outer.topDesign.asInstanceOf[ChipTop].lazySystem.isInstanceOf[freechips.rocketchip.osd.HasOSDMAM]) {
     _outer.topDesign.module.asInstanceOf[LazyRawModuleImp].getPorts.foreach { ports =>
       if(ports.id.isInstanceOf[AsyncReset])   { ports.id.asInstanceOf[Reset] := sys_rst.asAsyncReset() }
-      if(ports.id.toNamed.name == "glip_rst") { ports.id := ~(_outer.pllFactory.plls.getWrappedValue(0)._1.getLocked) } //getLocked active high
-      if(ports.id.toNamed.name == "sys_rst" ) {
-        if(_outer.ddrplaced.isInstanceOf[DDRGENESYS2PlacedOverlay]) {
-          _outer.ddrplaced.asInstanceOf[DDRGENESYS2PlacedOverlay].mig.module.reset := ports.id
-        }
+      if(ports.id.toNamed.name == "glip_rst") { ports.id := ~pllLocked } //getLocked active high
+      if(_outer.ddrplaced.isInstanceOf[DDRGENESYS2PlacedOverlay]) {
+        _outer.ddrplaced.asInstanceOf[DDRGENESYS2PlacedOverlay].mig.module.reset := sys_rst
       }
   }}
 

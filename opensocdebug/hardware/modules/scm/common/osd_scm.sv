@@ -71,4 +71,6 @@ module osd_scm
             rst_vector <= reg_wdata[1:0];
       end
    end
+
+   initial #0.002 rst_vector <= 2'b00;
 endmodule

@@ -271,6 +271,7 @@ class DirectoryEntrySwaper(params: InclusiveCacheParameters) extends Module
 
   val s_idle       = RegInit(true.B)
   def init_meta(meta: DirectoryEntry) {
+    meta.tag       := 0.U
     meta.dirty     := false.B
     meta.state     := INVALID
     meta.clients   := 0.U
@@ -287,16 +288,17 @@ class DirectoryEntrySwaper(params: InclusiveCacheParameters) extends Module
   //swap zone only belong to one set(either source or dest)
   //meta_array -> swap_entry -> mshr_entry -> meta_array
   //write -> swap_entry
-  val rhit_mshr            = io.read.bits.set === mshr_entry.set && io.read.bits.tag === mshr_entry.data.tag    && mshr_entry.data.state    =/= INVALID  && !mta
-  val rhit_swap            = io.read.bits.set === swap_entry.set && io.read.bits.tag === swap_entry.data.tag    && swap_entry.data.state    =/= INVALID  && !wen
-  val rhit_rresp           = io.read.bits.set === resp_entry.set && io.read.bits.tag === resp_entry.data.tag    && resp_entry.data.state    =/= INVALID  &&  io.result.bits.stm
-  val rhit_write           = io.read.bits.set === swap_entry.set && io.read.bits.tag === io.write.bits.data.tag && io.write.bits.data.state =/= INVALID  &&  wen
+  //read swap zone will trigger swap so ignore match
+  val rhit_mshr            = !io.read.bits.swz && io.read.bits.set === mshr_entry.set && io.read.bits.tag === mshr_entry.data.tag    && mshr_entry.data.state    =/= INVALID  && !mta
+  val rhit_swap            = !io.read.bits.swz && io.read.bits.set === swap_entry.set && io.read.bits.tag === swap_entry.data.tag    && swap_entry.data.state    =/= INVALID  && !wen
+  val rhit_rresp           = !io.read.bits.swz && io.read.bits.set === resp_entry.set && io.read.bits.tag === resp_entry.data.tag    && resp_entry.data.state    =/= INVALID  &&  io.result.bits.stm
+  val rhit_write           = !io.read.bits.swz && io.read.bits.set === swap_entry.set && io.read.bits.tag === io.write.bits.data.tag && io.write.bits.data.state =/= INVALID  &&  wen
   io.result.valid         := RegNext(io.read.valid && (io.read.bits.swz || rhit_mshr || rhit_swap || rhit_rresp || rhit_write))
   io.result.bits          := RegEnable(Mux(rhit_write, io.write.bits.data, 
                                        Mux(rhit_mshr , mshr_entry.data   , 
                                        Mux(rhit_rresp, resp_entry.data   ,
                                                        swap_entry.data))), io.read.valid)
-  io.result.bits.swz      := RegEnable(rhit_write || rhit_rresp || rhit_swap, io.read.valid)
+  io.result.bits.swz      := RegEnable(rhit_write || rhit_rresp || rhit_swap, io.read.valid) //read swap zone will trigger swap
   io.result.bits.hit      := io.result.valid
   io.result.bits.mshr     := RegEnable(rhit_mshr, io.read.valid)
   io.result.bits.way      := Mux(io.result.bits.swz, 0.U, resp_entry.way)
@@ -372,7 +374,9 @@ class DirectoryEntrySwaper(params: InclusiveCacheParameters) extends Module
   when( io.rresp.valid ) { s_idle  :=  true.B  }
 
   iways.map { each_i => {
-    val matchs = PopCount(iways.map{ each_j => { each_i.state =/= INVALID && each_j.state =/= INVALID && each_i.tag === each_j.tag }})
+    val matchOH  = Cat(iways.map{ each_j => { each_i.state =/= INVALID && each_j.state =/= INVALID && each_i.tag === each_j.tag }}.reverse)
+    val matchs   = PopCount(matchOH)
+    when(matchs > 1.U) { printf("redundant match tag_%x set_%x match ways_%x", each_i.tag, RegNext(io.read.bits.set), matchOH) }
     assert(matchs <= 1.U)
   }}
 

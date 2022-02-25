@@ -145,6 +145,8 @@ class Scheduler(params: InclusiveCacheParameters) extends Module
   val scheduleSet = Mux1H(mshr_selectOH, mshrs.map(_.io.status.bits.set))
   val scheduleSwz = Mux1H(mshr_selectOH, mshrs.map(_.io.status.bits.swz))
   val scheduleNop = Mux1H(mshr_selectOH, mshrs.map(_.io.status.bits.nop))
+  val scheduleMta = Mux1H(mshr_selectOH, mshrs.map{ case m => { m.io.schedule.bits.dir.valid && m.io.schedule.bits.dir.bits.mta }}) //(meta_array -> swap_entry) -> mshr_entry -> meta_array
+  val scheduleInv = Mux1H(mshr_selectOH, mshrs.map{ case m => { m.io.schedule.bits.dir.valid && m.io.schedule.bits.dir.bits.data.state === MetaData.INVALID }})
 
   // When an MSHR wins the schedule, it has lowest priority next time
   when (mshr_request.orR()) { robin_filter := ~rightOR(mshr_selectOH) }
@@ -254,7 +256,8 @@ class Scheduler(params: InclusiveCacheParameters) extends Module
     val will_reload = m.io.schedule.bits.reload && (may_pop || bypass)
     m.io.allocate.bits := Mux(bypass, Wire(new QueuedRequest(params), init = request.bits), requests.io.data)
     m.io.allocate.bits.set := m.io.status.bits.set
-    m.io.allocate.bits.repeat := m.io.allocate.bits.tag === m.io.status.bits.tag && !m.io.status.bits.nop && !m.io.status.bits.swz
+    m.io.allocate.bits.repeat := m.io.allocate.bits.tag === m.io.status.bits.tag && !m.io.status.bits.nop && !m.io.status.bits.swz &&
+                                 !(m.io.schedule.bits.dir.valid && m.io.schedule.bits.dir.bits.mta && m.io.schedule.bits.dir.bits.data.state === MetaData.INVALID)
     m.io.allocate.bits.disamb := false.B 
     m.io.allocate.valid := sel && will_reload
   }
@@ -266,10 +269,11 @@ class Scheduler(params: InclusiveCacheParameters) extends Module
   requests.io.pop.bits  := pop_index
 
   // Reload from the Directory if the next MSHR operation changes tags
-  val lb_tag_mismatch = scheduleTag =/= requests.io.data.tag || scheduleSwz || scheduleNop
+  val force_tag_missmtah = scheduleSwz || scheduleNop || (scheduleMta && scheduleInv)
+  val lb_tag_mismatch    = scheduleTag =/= requests.io.data.tag || force_tag_missmtah
   val mshr_uses_directory_assuming_no_bypass = schedule.reload && may_pop && lb_tag_mismatch
   val mshr_uses_directory_for_lb = will_pop && lb_tag_mismatch
-  val mshr_uses_directory = will_reload && (scheduleTag =/= Mux(bypass, request.bits.tag, requests.io.data.tag) || scheduleSwz || scheduleNop)
+  val mshr_uses_directory = will_reload && (scheduleTag =/= Mux(bypass, request.bits.tag, requests.io.data.tag) || force_tag_missmtah)
 
   // Is there an MSHR free for this request?
   val mshr_validOH = Cat(mshrs.map(_.io.status.valid).reverse)
@@ -436,9 +440,9 @@ class Scheduler(params: InclusiveCacheParameters) extends Module
       dir_wque.bits  := directory.io.write.bits
     }
     sinkX.io.blocksr    :=  (dir_wque.valid && dir_wque.bits.set === sinkX.io.sset) || //can not inspect write fifo!! so wait write fifo drained
-                            (Cat(mshrs.map { m => m.io.status.valid && ( m.io.status.bits.set === sinkX.io.sset) }).orR) || sinkA.io.req.valid    || sinkC.io.req.valid
-                            (RegNext((request.valid           && request.bits.newset.valid     && request.bits.newset.bits     === sinkX.io.sset) ||
-                                     (requests.io.pop.valid   && requests.io.data.newset.valid && requests.io.data.newset.bits === sinkX.io.sset) )) //low prio than rereq(lowest prioirty)
+                            (Cat(mshrs.map { m => m.io.status.valid && ( m.io.status.bits.set === sinkX.io.sset) }).orR) || sinkA.io.req.valid  || sinkC.io.req.valid || !sinkC.io.sinkA_safe
+                            //(RegNext((request.valid           && request.bits.newset.valid     && request.bits.newset.bits     === sinkX.io.sset) ||
+                            //         (requests.io.pop.valid   && requests.io.data.newset.valid && requests.io.data.newset.bits === sinkX.io.sset) )) //low prio than rereq(lowest prioirty)
 
     //swap directoryentry
     directory.io.rreq     <>  remaper.io.dereq

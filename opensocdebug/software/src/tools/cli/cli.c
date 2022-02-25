@@ -44,6 +44,8 @@
 #define CHECK_MATCH(input, string) \
         (input && !strncmp(input, string, strlen(string)+1))
 
+static uint16_t mem_id = 3;
+
 static int interpret(struct osd_context *ctx, char *line) {
     char *cmd = strtok(line, " ");
 
@@ -82,7 +84,7 @@ static int interpret(struct osd_context *ctx, char *line) {
         }
     } else if (CHECK_MATCH(cmd, "mem")) {
         char *subcmd = strtok(NULL, " ");
-        osd_close_mempfc(ctx, mem);
+        osd_close_mempfc(ctx, mem_id);
 
         if (CHECK_MATCH(subcmd, "help")) {
             PRINT_HELP(mem);
@@ -110,6 +112,7 @@ static int interpret(struct osd_context *ctx, char *line) {
 
             errno = 0;
             unsigned int mem = strtol(smem, 0, 0);
+            //mem_id = mem;
             if (errno != 0) {
                 fprintf(stderr, "Invalid memory id: %s\n", smem);
                 PRINT_HELP(mem_loadelf);
@@ -375,7 +378,7 @@ int main(int argc, char* argv[]) {
         }
     }
     osd_reset_system(ctx, 1);  //auto reset -halt
-    osd_close_mempfc(ctx, 3);  //auto close mempfc
+    osd_close_mempfc(ctx, mem_id);  //auto close mempfc
     char enterminal[15] = "terminal 2";
     interpret(ctx, enterminal); //auto start terminal
     while (1) {
