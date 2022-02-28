@@ -1,0 +1,29 @@
+0. myenv ubuntu18(gcc 7.5, g++7.5) vcs_mx 2018 verdi 2018
+
+1. in fpga file make sim_lib to generate xil_lib and script(only have to do it once)
+
+2. patch TestDriver.sh(script) manually(only have to do it once unless add files)
+   2.1 modify parameter
+   vlogan_opts="-full64 -v2005 +define+FSDB -P ${VERDI_HOME}/share/PLI/VCS/LINUX64/novas.tab ${VERDI_HOME}/share/PLI/VCS/LINUX64/pli.a +define+RANDOMIZE_MEM_INIT +define+RANDOMIZE_REG_INIT +define+RANDOMIZE_GARBAGE_ASSIGN +define+RANDOMIZE_INVALID_ASSIGN"
+   vcs_elab_opts="-full64 -LDFLAGS -Wl,-no-as-needed -P ${VERDI_HOME}/share/PLI/VCS/LINUX64/novas.tab ${VERDI_HOME}/share/PLI/VCS/LINUX64/pli.a -timescale=1ns/10ps -debug_pp -t ps -licqueue -l elaborate.log "
+   vcs_sim_opts="-ucli -licqueue -l simulate.log"
+   elaborate()
+   {
+     vcs $vcs_elab_opts GlipTcp.o glip_tcp_dpi.o xil_defaultlib.TestDriver xil_defaultlib.glbl -o TestDriver_simv
+   }
+  
+   2.2 files sorting file which include `timescale 1ns/1ps first
+       TestDriver.sv"
+
+3. place boot.mem ./
+   in fpga/src/.../bootram make dram.mem
+
+4. ./TestDriver.sh
+
+5. ./TestDriver_simv
+
+6. modify chisel
+
+7. in fpga file make verilog
+
+8. 3. or 4.

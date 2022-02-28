@@ -3,12 +3,16 @@
 # Process command line arguments
 # http://wiki.tcl.tk/1730
 set ip_vivado_tcls {}
+set sim false
 
 while {[llength $argv]} {
   set argv [lassign $argv[set argv {}] flag]
   switch -glob $flag {
     -top-module {
       set argv [lassign $argv[set argv {}] top]
+    }
+    -long_name {
+      set argv [lassign $argv[set argv {}] long_name]
     }
     -F {
       # This should be a simple file format with one filepath per line
@@ -28,6 +32,15 @@ while {[llength $argv]} {
     }
     -env-var-srcs {
       set argv [lassign $argv[set argv {}] env_var_srcs]
+    }
+    -sim {
+      set sim true
+    }
+    -vcs_home {
+      set argv [lassign $argv[set argv {}] vcs_home]
+    }
+    -sim_dir {
+      set argv [lassign $argv[set argv {}] sim_dir]
     }
     default {
       return -code error [list {unknown option} $flag]

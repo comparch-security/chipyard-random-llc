@@ -80,9 +80,40 @@ onboard_ddr3 ddr3(
   .ddr3_dqs_p        (  ddr3_dqs_p_fpga  )
 );
 
+
 initial begin
   force ddr3.sys_rst_n           = reset;
   force ddr3.init_calib_complete = fpga.mig.island.blackbox_init_calib_complete; //50us `timescale 1ns/1ps
+end
+
+
+`define abc_mshrs_0
+`define abc_mshrs_1
+`define abc_mshrs_2
+`define abc_mshrs_3
+`define abc_mshrs_4
+//`define abc_mshrs_5
+//`define abc_mshrs_6
+//`define abc_mshrs_7
+initial begin
+  `ifdef abc_mshrs_0  force   fpga.chiptop.system.subsystem_l2_wrapper.l2.mods_0.abc_mshrs_0.w_timer  = 0; `endif
+  `ifdef abc_mshrs_1  force   fpga.chiptop.system.subsystem_l2_wrapper.l2.mods_0.abc_mshrs_1.w_timer  = 0; `endif
+  `ifdef abc_mshrs_2  force   fpga.chiptop.system.subsystem_l2_wrapper.l2.mods_0.abc_mshrs_2.w_timer  = 0; `endif
+  `ifdef abc_mshrs_3  force   fpga.chiptop.system.subsystem_l2_wrapper.l2.mods_0.abc_mshrs_3.w_timer  = 0; `endif
+  `ifdef abc_mshrs_4  force   fpga.chiptop.system.subsystem_l2_wrapper.l2.mods_0.abc_mshrs_4.w_timer  = 0; `endif
+  `ifdef abc_mshrs_5  force   fpga.chiptop.system.subsystem_l2_wrapper.l2.mods_0.abc_mshrs_5.w_timer  = 0; `endif
+  `ifdef abc_mshrs_6  force   fpga.chiptop.system.subsystem_l2_wrapper.l2.mods_0.abc_mshrs_6.w_timer  = 0; `endif
+  `ifdef abc_mshrs_7  force   fpga.chiptop.system.subsystem_l2_wrapper.l2.mods_0.abc_mshrs_7.w_timer  = 0; `endif
+  wait(ddr3.init_calib_complete);
+  #10000;
+  `ifdef abc_mshrs_0  release fpga.chiptop.system.subsystem_l2_wrapper.l2.mods_0.abc_mshrs_0.w_timer     ; `endif
+  `ifdef abc_mshrs_1  release fpga.chiptop.system.subsystem_l2_wrapper.l2.mods_0.abc_mshrs_1.w_timer     ; `endif
+  `ifdef abc_mshrs_2  release fpga.chiptop.system.subsystem_l2_wrapper.l2.mods_0.abc_mshrs_2.w_timer     ; `endif
+  `ifdef abc_mshrs_3  release fpga.chiptop.system.subsystem_l2_wrapper.l2.mods_0.abc_mshrs_3.w_timer     ; `endif
+  `ifdef abc_mshrs_4  release fpga.chiptop.system.subsystem_l2_wrapper.l2.mods_0.abc_mshrs_4.w_timer     ; `endif
+  `ifdef abc_mshrs_5  release fpga.chiptop.system.subsystem_l2_wrapper.l2.mods_0.abc_mshrs_5.w_timer     ; `endif
+  `ifdef abc_mshrs_6  release fpga.chiptop.system.subsystem_l2_wrapper.l2.mods_0.abc_mshrs_6.w_timer     ; `endif
+  `ifdef abc_mshrs_7  release fpga.chiptop.system.subsystem_l2_wrapper.l2.mods_0.abc_mshrs_7.w_timer     ; `endif
 end
 
 endmodule

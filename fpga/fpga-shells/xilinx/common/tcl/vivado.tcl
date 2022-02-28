@@ -9,35 +9,41 @@ source [file join $scriptdir "prologue.tcl"]
 # Initialize Vivado project files
 source [file join $scriptdir "init.tcl"]
 
-# Synthesize the design
-source [file join $scriptdir "synth.tcl"]
+if { $sim } {
+    source [file join $scriptdir "sim.tcl"]
+} else {
 
-# Pre-implementation debug
-if {[info exists pre_impl_debug_tcl]} {
-  source [file join $scriptdir $pre_impl_debug_tcl]
+  # Synthesize the design
+  source [file join $scriptdir "synth.tcl"]
+
+  # Pre-implementation debug
+  if {[info exists pre_impl_debug_tcl]} {
+    source [file join $scriptdir $pre_impl_debug_tcl]
+  }
+
+  # Post synthesis optimization
+  source [file join $scriptdir "opt.tcl"]
+
+  # Post-opt debug
+  if {[info exists post_opt_debug_tcl]} {
+    source [file join $scriptdir $post_opt_debug_tcl]
+  }
+
+  # Place the design
+  source [file join $scriptdir "place.tcl"]
+
+  # Route the design
+  source [file join $scriptdir "route.tcl"]
+
+  # Generate bitstream and save verilog netlist
+  source [file join $scriptdir "bitstream.tcl"]
+
+  # Post-implementation debug
+  if {[info exists post_impl_debug_tcl]} {
+    source [file join $scriptdir $post_impl_debug_tcl]
+  }
+
+  # Create reports for the current implementation
+  source [file join $scriptdir "report.tcl"]
+
 }
-
-# Post synthesis optimization
-source [file join $scriptdir "opt.tcl"]
-
-# Post-opt debug 
-if {[info exists post_opt_debug_tcl]} {
-  source [file join $scriptdir $post_opt_debug_tcl]
-}
-
-# Place the design
-source [file join $scriptdir "place.tcl"]
-
-# Route the design
-source [file join $scriptdir "route.tcl"]
-
-# Generate bitstream and save verilog netlist
-source [file join $scriptdir "bitstream.tcl"]
-
-# Post-implementation debug
-if {[info exists post_impl_debug_tcl]} {
-  source [file join $scriptdir $post_impl_debug_tcl]
-}
-
-# Create reports for the current implementation
-source [file join $scriptdir "report.tcl"]

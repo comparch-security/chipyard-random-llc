@@ -61,6 +61,16 @@ osd_vsrcs := \
 	$(glip_dir)/common/logic/fifo/verilog/fifo_singleclock_noc.sv \
 	$(glip_dir)/common/logic/fifo/verilog/fifo_singleclock_standard.sv \
 
+fpga_sim_vsrcs := \
+	$(base_dir)/fpga/sims/src/TestDriver.sv \
+	$(base_dir)/fpga/sims/src/board.sv \
+	$(base_dir)/fpga/sims/src/ddr3_model/wiredly.v \
+	$(base_dir)/fpga/sims/src/ddr3_model/ddr3_model_parameters.vh \
+	$(base_dir)/fpga/sims/src/ddr3_model/ddr3_model.sv \
+	$(base_dir)/fpga/sims/src/ddr3_model/onboard_ddr3_parameters.vh \
+	$(base_dir)/fpga/sims/src/ddr3_model/onboard_ddr3.sv \
+
+
 #########################################################################################
 # specify user-interface variables
 #########################################################################################

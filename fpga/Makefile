@@ -100,6 +100,7 @@ include $(base_dir)/common.mk
 #########################################################################################
 all_vsrcs := \
 	$(sim_vsrcs) \
+	$(fpga_sim_vsrcs) \
 	$(base_dir)/generators/sifive-blocks/vsrc/SRLatch.v \
 	$(fpga_dir)/common/vsrc/PowerOnResetFPGAOnly.v \
 
@@ -114,6 +115,24 @@ synth_list_f := $(build_dir)/$(long_name).vsrcs.f
 $(synth_list_f): $(sim_common_files) $(all_vsrcs)
 	$(foreach file,$(all_vsrcs),echo "$(file)" >> $@;)
 	cat $(sim_common_files) >> $@
+
+sim_lib: $(synth_list_f)
+	make -C $(bootram_dir) fat32elf.mem
+	mkdir -p $(build_dir)/obj/
+	ln -fs $(bootram_dir)/build/fat32elf.mem  $(build_dir)/obj/boot.mem
+	cd $(build_dir); vivado \
+		-nojournal -mode batch \
+		-source $(fpga_common_script_dir)/vivado.tcl \
+		-tclargs \
+                        -sim \
+                        -sim_dir "$(sim_dir)/sims" \
+                        -vcs_home "$(VCS_HOME)" \
+			-top-module "$(MODEL)" \
+			-long_name "$(long_name)" \
+			-F "$(synth_list_f)" \
+			-ip-vivado-tcls "$(shell find '$(build_dir)' -name '*.vivado.tcl')" \
+			-board "$(BOARD)"
+
 
 #BIT_FILE := $(build_dir)/$(MODEL).runs/impl_1/$(MODEL).bit
 BIT_FILE := $(build_dir)/obj/$(MODEL).bit
@@ -137,12 +156,13 @@ bitstream: $(BIT_FILE)
 debug-bitstream: $(build_dir)/obj/post_synth.dcp
 	cd $(build_dir); vivado \
 		-nojournal -mode batch \
-		-source $(sim_dir)/scripts/run_impl_bitstream.tcl \
+		-source $(base_dir)/fpga/scripts/run_impl_bitstream.tcl \
 		-tclargs \
 			$(build_dir)/obj/post_synth.dcp \
 			$(BOARD) \
 			$(build_dir)/debug_obj \
 			$(fpga_common_script_dir)
+
 
 #########################################################################################
 # general cleanup rules

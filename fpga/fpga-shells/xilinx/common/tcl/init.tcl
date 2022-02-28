@@ -42,6 +42,12 @@ set obj [current_fileset]
 #[get_property include_dirs] misses all IP core subdirectory includes if user has specified -dir flag in create_ip
 set property_include_dirs [get_property include_dirs $obj]
 
+#TestDriver only used for sim
+set_property used_in_synthesis      false [get_files  -all {board.sv}]
+set_property used_in_implementation false [get_files  -all {board.sv}]
+set_property used_in_synthesis      false [get_files  -all {TestDriver.sv}]
+set_property used_in_implementation false [get_files  -all {TestDriver.sv}]
+
 
 # Include generated files for the IPs in the design
 set ip_include_dirs [concat $property_include_dirs [findincludedir $ipdir "*.vh"]]
