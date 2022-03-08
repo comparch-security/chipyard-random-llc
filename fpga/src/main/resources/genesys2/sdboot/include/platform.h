@@ -10,6 +10,7 @@
 #include "devices/spi.h"
 #include "devices/uart.h"
 #include "devices/pfc.h"
+#include "devices/l2ctrl.h"
 
  // Some things missing from the official encoding.h
 #if __riscv_xlen == 32
@@ -59,6 +60,8 @@
 #define UART1_CTRL_SIZE _AC(0x1000,UL)
 #define I2C_CTRL_ADDR _AC(0x64005000,UL)
 #define I2C_CTRL_SIZE _AC(0x1000,UL)
+#define L2_CTRL_ADDR _AC(0x2010000,UL)
+#define L2_CTRL_SIZE _AC(0x1000,UL)
 
 // IOF masks
 

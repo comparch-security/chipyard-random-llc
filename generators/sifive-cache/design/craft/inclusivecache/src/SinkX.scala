@@ -37,6 +37,7 @@ class SinkXRequest(params: InclusiveCacheParameters) extends InclusiveCacheBundl
   //req from remaper don't need read randomtable
   val tag     = UInt(width = if(params.remap.en) params.blkadrBits else params.tagBits)
   val set     = UInt(width = params.setBits)
+  val loc     = UInt(width = RTAL.SZ       )
 }
 
 class SinkX(params: InclusiveCacheParameters) extends Module
@@ -46,10 +47,11 @@ class SinkX(params: InclusiveCacheParameters) extends Module
     val x = Decoupled(new SinkXRequest(params)).flip
     val fldone  = Bool().asInput                               //only one fluh req inflight
     val rx      = Decoupled(new SinkXRequest(params)).flip    //remaper x
-    val hset    = Vec(2, Decoupled(UInt(width = params.setBits)).flip)
+    val hset    = Vec(2, Decoupled(new Hset(params.setBits)).flip)
     val rereq   = Decoupled(new FullRequest(params)).flip
     val sset    = UInt(width = params.setBits) //swap_set
     val blocksr = Bool().asInput  //block swap req
+    val busy    = Bool().asOutput
   }
 
   val x = Queue(io.x, 1)
@@ -91,8 +93,10 @@ class SinkX(params: InclusiveCacheParameters) extends Module
     flush_arb.io.in(1).bits.source         := UInt(0)
     flush_arb.io.in(1).bits.offset         := offset
     flush_arb.io.in(1).bits.newset.valid   := hset(1).valid
-    flush_arb.io.in(1).bits.newset.bits    := hset(1).bits
-    flush_arb.io.in(1).bits.set            := hset(0).bits
+    flush_arb.io.in(1).bits.newset.bits    := hset(1).bits.set
+    flush_arb.io.in(1).bits.loc(1)         := hset(1).bits.loc
+    flush_arb.io.in(1).bits.set            := hset(0).bits.set
+    flush_arb.io.in(1).bits.loc(0)         := hset(0).bits.loc
     flush_arb.io.in(1).bits.tag            := tag
     x.ready                                := flush_arb.io.in(1).ready && fldone
     when( x.fire()  )                     { fldone := false.B }
@@ -103,6 +107,7 @@ class SinkX(params: InclusiveCacheParameters) extends Module
     flush_arb.io.in(2).bits.source         := UInt(1)
     flush_arb.io.in(2).bits.newset.valid   := false.B
     flush_arb.io.in(2).bits.set            := io.rx.bits.set
+    flush_arb.io.in(2).bits.loc(0)         := io.rx.bits.loc
     flush_arb.io.in(2).bits.tag            := io.rx.bits.tag
     //flush_arb      -> flush_req
     flush_req.io.enq                       <> flush_arb.io.out
@@ -113,6 +118,7 @@ class SinkX(params: InclusiveCacheParameters) extends Module
     swap_req.io.enq.bits.source           := UInt(1)
     swap_req.io.enq.bits.newset.valid     := false.B
     swap_req.io.enq.bits.set              := io.rx.bits.set
+    swap_req.io.enq.bits.loc(0)           := io.rx.bits.loc
     swap_req.io.enq.bits.tag              := io.rx.bits.tag
     io.sset                               := swap_req.io.deq.bits.set
 
@@ -132,6 +138,8 @@ class SinkX(params: InclusiveCacheParameters) extends Module
     io.req.bits.param                     := UInt(0)
     io.req.bits.size                      := UInt(params.offsetBits)
     io.req.bits.offset                    := UInt(0)
+
+    io.busy  := x.valid || !fldone || flush_arb.io.in(0).valid
 
     when(io.rereq.valid) { assert(io.rereq.ready) }
   }

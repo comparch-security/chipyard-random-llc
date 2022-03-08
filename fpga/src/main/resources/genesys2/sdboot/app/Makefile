@@ -9,7 +9,7 @@ OBJCOPY=$(RISCV)/bin/riscv64-unknown-linux-gnu-objcopy
 OBJDUMP=$(RISCV)/bin/riscv64-unknown-linux-gnu-objdump
 CFLAGS= -static -g -O2 -I$(BROM_DIR)/include -I$(DRIVER_DIR)
 
-TARGETS = led pfc autoSPEC
+TARGETS = led pfc atdect autoSPEC
 
 c_source+= $(DRIVER_DIR)/pfc.c $(DRIVER_DIR)/pfc.h
 

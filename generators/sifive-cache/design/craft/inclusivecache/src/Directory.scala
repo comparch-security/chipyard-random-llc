@@ -95,6 +95,10 @@ class Directory(params: InclusiveCacheParameters) extends Module
   val write = Queue(writeqin, 1) // must inspect contents => max size 1
   // a flow Q creates a WaR hazard... this MIGHT not cause a problem
   // a pipe Q causes combinational loop through the scheduler
+  val write_stall_time = RegInit(UInt(0, width = 4))
+  val write_block_read = write_stall_time(3)
+  when(write.valid) { write_stall_time := write_stall_time + 1.U }
+  when(write.ready) { write_stall_time := 0.U                    }
 
   // Wiping the Directory with 0s on reset has ultimate priority
   val wipeCount = RegInit(UInt(0, width = params.setBits + 1))
@@ -102,7 +106,7 @@ class Directory(params: InclusiveCacheParameters) extends Module
   val wipeDone = wipeCount(params.setBits)
   val wipeSet = wipeCount(params.setBits - 1,0)
 
-  io.ready := wipeDone
+  io.ready := wipeDone && !write_block_read
   when (!wipeDone && !wipeOff) { wipeCount := wipeCount + UInt(1) }
   assert (wipeDone || !io.read.valid)
 
@@ -199,6 +203,6 @@ class Directory(params: InclusiveCacheParameters) extends Module
   if(true) {
     val timers  = RegInit(UInt(0, width = 32))
     timers := timers+1.U
-    when(io.write.fire() && io.write.bits.data.state =/= INVALID) { printf("clk %d tag %x set %x way %x swz %d\n",timers, io.write.bits.data.tag, io.write.bits.set, io.write.bits.way, io.write.bits.swz)}
+    when(io.write.fire() && io.write.bits.data.state =/= INVALID) { printf("clk %d tag %x set %x way %x swz %d loc %d\n",timers, io.write.bits.data.tag, io.write.bits.set, io.write.bits.way, io.write.bits.swz, io.write.bits.data.loc)}
   }
 }

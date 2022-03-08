@@ -43,9 +43,6 @@ class SourceC(params: InclusiveCacheParameters) extends Module
     // RaW hazard
     val evict_req = new SourceDHazard(params)
     val evict_safe = Bool().flip
-    // swap hazard
-    val swap_req   = new SourceDHazard(params).flip
-    val swap_safe  = Bool()
     //for use by rempaer
     val idle     = Bool()
   }
@@ -79,8 +76,6 @@ class SourceC(params: InclusiveCacheParameters) extends Module
   io.evict_req.set := req.set
   io.evict_req.way := req.way
   io.evict_req.swz := req.swz
-
-  io.swap_safe     := !want_data || ((io.swap_req.way =/= req.way || io.swap_req.set =/= req.set) && !(io.swap_req.swz && req.swz))
 
   io.bs_adr.valid := (beat.orR || io.evict_safe) && want_data
   io.bs_adr.bits.noop := Bool(false)

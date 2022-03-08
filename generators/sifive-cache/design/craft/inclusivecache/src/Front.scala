@@ -21,6 +21,11 @@ import Chisel._
 import freechips.rocketchip.tilelink._
 import freechips.rocketchip.util._
 
+class Hset(val w: Int) extends Bundle {
+  val set  = UInt(width = w)
+  val loc  = UInt(width = RTAL.SZ)
+}
+
 class FSourceX_no_used_anymore(params: InclusiveCacheParameters) extends Module
 {
   val io = new Bundle {
@@ -60,7 +65,7 @@ class FSinkX_no_used_anymore(params: InclusiveCacheParameters) extends Module
     val fldone   = Bool().asInput                           //flush done
     //for use by rempaer
     val rx       = Decoupled(new DirectoryRead(params)).flip //remaper x
-    val rstatus  = new RemaperStatusIO(params.setBits).asInput  //Remaper Status
+    val rstatus  = new RemaperStatusIO(params).asInput  //Remaper Status
     val rtab     = new SourceSinkRandomTableIO(params.blkadrBits, params.setBits)
     val idle     = Bool() //only when idle we can remap safely
   }
@@ -115,7 +120,7 @@ class FSink_no_used_anymore[T <: TLAddrChannel](val gen: T, params: InclusiveCac
     val back       = Decoupled(gen)                               //Backend
     val diradr     = Decoupled(new DirectoryRead(params))         //must synchronize with bc!!
     //for use by rempaer
-    val rstatus    = new RemaperStatusIO(params.setBits).asInput  //Remaper Status
+    val rstatus    = new RemaperStatusIO(params).asInput  //Remaper Status
     val rtab       = new SourceSinkRandomTableIO(params.blkadrBits, params.setBits)
     val idle       = Bool() //can remap safely
     val dir_read   = Decoupled(new DirectoryRead(params))
@@ -207,14 +212,14 @@ class FSink[T <: Data](val gen: T, params: InclusiveCacheParameters) extends Mod
   val io = new Bundle {
     val front      = Decoupled(gen).flip
     val back       = Decoupled(gen)
-    val hset       = Vec(2, Decoupled(UInt(width = params.setBits)))
+    val hset       = Vec(2, Decoupled(new Hset(params.setBits)))
     //for use by rempaer
-    val rstatus    = new RemaperStatusIO(params.setBits).asInput  //Remaper Status
+    val rstatus    = new RemaperStatusIO(params).asInput  //Remaper Status
     val rtab       = new SourceSinkRandomTableIO(params.blkadrBits, params.setBits)
   }
 
-  val back           =                Module(new Queue(io.front.bits.cloneType,       1, pipe = false, flow = true ))
-  val hset           =  Seq.fill(2) { Module(new Queue(UInt(width = params.setBits),  1, pipe = false, flow = true )) }
+  val back           =                Module(new Queue(io.front.bits.cloneType,   1, pipe = false, flow = true ))
+  val hset           =  Seq.fill(2) { Module(new Queue(new Hset(params.setBits),  1, pipe = false, flow = true )) }
   val address        =  Wire(UInt())
   io.front.bits match {
     case a: TLBundleA    => { address := a.address }
@@ -225,7 +230,9 @@ class FSink[T <: Data](val gen: T, params: InclusiveCacheParameters) extends Mod
   val blkadr         = Cat(tag, set)
   val stall          = RegInit(false.B)
 
-  val swapped        = Wire(init = ((io.rstatus.cloc === RTAL.LEFT && io.rtab.resp.bits.lhset < io.rstatus.head) || (io.rstatus.cloc === RTAL.RIGH && io.rtab.resp.bits.rhset < io.rstatus.head)))
+  val swapped        = Wire(init = ((io.rstatus.cloc === RTAL.LEFT && io.rtab.resp.bits.lhset < io.rstatus.head) ||
+                                    (io.rstatus.cloc === RTAL.RIGH && io.rtab.resp.bits.rhset < io.rstatus.head) ||
+                                    (io.rtab.resp.bits.lhset === io.rtab.resp.bits.rhset                       ) ))
 
   //io.front      --->  io.rtab.req
   io.rtab.req.valid             := io.front.valid && !stall
@@ -233,9 +240,11 @@ class FSink[T <: Data](val gen: T, params: InclusiveCacheParameters) extends Mod
 
   //io.rtab.resp  --->  hset
   hset(0).io.enq.valid          := io.rtab.resp.valid
-  hset(0).io.enq.bits           := Mux(Mux(!io.rstatus.oneloc && swapped, io.rstatus.nloc === RTAL.LEFT, io.rstatus.cloc === RTAL.LEFT), io.rtab.resp.bits.lhset, io.rtab.resp.bits.rhset)
-  hset(1).io.enq.valid          := io.rtab.resp.valid && !io.rstatus.oneloc && !swapped && (io.rtab.resp.bits.lhset =/= io.rtab.resp.bits.rhset)
-  hset(1).io.enq.bits           := Mux(io.rstatus.nloc === RTAL.LEFT, io.rtab.resp.bits.lhset, io.rtab.resp.bits.rhset)
+  hset(0).io.enq.bits.set       := Mux(Mux(!io.rstatus.oneloc && swapped, io.rstatus.nloc === RTAL.LEFT, io.rstatus.cloc === RTAL.LEFT), io.rtab.resp.bits.lhset, io.rtab.resp.bits.rhset)
+  hset(0).io.enq.bits.loc       := Mux(Mux(!io.rstatus.oneloc && swapped, io.rstatus.nloc === RTAL.LEFT, io.rstatus.cloc === RTAL.LEFT),              RTAL.LEFT,                RTAL.RIGH)
+  hset(1).io.enq.valid          := io.rtab.resp.valid && !io.rstatus.oneloc && !swapped
+  hset(1).io.enq.bits.set       := Mux(io.rstatus.nloc === RTAL.LEFT, io.rtab.resp.bits.lhset, io.rtab.resp.bits.rhset)
+  hset(1).io.enq.bits.loc       := Mux(io.rstatus.nloc === RTAL.LEFT,               RTAL.LEFT,               RTAL.RIGH)
 
   //io.front      --->  back
   back.io.enq.valid             :=  io.rtab.resp.valid
@@ -249,7 +258,6 @@ class FSink[T <: Data](val gen: T, params: InclusiveCacheParameters) extends Mod
     io.hset(i).bits             := hset(i).io.deq.bits
     hset(i).io.deq.ready        := io.back.ready
   })
-
 
   when( io.rtab.req.fire()  )  { stall   := true.B    }
   when( io.back.fire()      )  { stall   := false.B   }

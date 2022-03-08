@@ -31,6 +31,7 @@ class QueuedRequest(params: InclusiveCacheParameters) extends InclusiveCacheBund
   val newset = Valid(UInt(width = params.setBits))
   val offset = UInt(width = params.offsetBits)
   val put    = UInt(width = params.putBits)
+  val loc    = Vec(2, UInt(width = RTAL.SZ)) //set loc and newset loc
 }
 
 class FullRequest(params: InclusiveCacheParameters) extends QueuedRequest(params)

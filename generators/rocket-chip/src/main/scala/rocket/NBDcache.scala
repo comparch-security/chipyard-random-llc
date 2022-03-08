@@ -215,11 +215,11 @@ class MSHR(id: Int)(implicit edge: TLEdgeOut, p: Parameters) extends L1HellaCach
   when (state === s_meta_clear && io.meta_write.ready) {
     state := s_refill_req
   }
-  when (state === s_wb_resp && io.wb_req.ready) { //must wait acked ? acked always reach before wb_ready ?
+  when (state === s_wb_resp && io.wb_req.ready && acked) {
     state := s_meta_clear
   }
   when (io.wb_req.fire()) { // s_wb_req
-    state := s_meta_clear
+    state := s_wb_resp
   }
   when (io.req_sec_val && io.req_sec_rdy) { // s_wb_req, s_wb_resp, s_refill_req
     //If we get a secondary miss that needs more permissions before we've sent

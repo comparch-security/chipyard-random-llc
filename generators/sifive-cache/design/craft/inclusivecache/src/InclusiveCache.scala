@@ -145,6 +145,17 @@ class InclusiveCache(
     val flushNoMatch   = Wire(init = Bool(true))
     val flushOutValid  = RegInit(Bool(false))
     val flushOutReady  = Wire(init = Bool(false))
+    val remaperConfigR = Reg(new RemaperConfig())
+    val atDetConfig0R  = Reg(new AttackDetectorConfig0())
+    val atDetConfig1R  = Reg(new AttackDetectorConfig1())
+    when(reset) {
+      atDetConfig0R.athreshold      := 0.U
+      atDetConfig0R.enath           := true.B
+      atDetConfig0R.ethreshold      := 0.U
+      atDetConfig0R.eneth           := true.B  //lowest bit
+      atDetConfig1R.zthreshold      := 0.U
+      atDetConfig1R.enzth           := true.B  //lowest bit
+   }
 
     when (flushOutReady) { flushOutValid := Bool(false) }
     when (flushInReady)  { flushInValid  := Bool(false) }
@@ -178,35 +189,29 @@ class InclusiveCache(
     val lgBlockBytesR = RegField.r(8, UInt(log2Ceil(cache.blockBytes)), RegFieldDesc("lgBlockBytes",
       "Base-2 logarithm of the bytes per cache block", reset=Some(log2Ceil(cache.blockBytes))))
 
-    val remaperConfigR = Reg(new RemaperConfig())
-    val remaperConfig  = RegField.w(64, RegWriteFn((ivalid, oready, data) => {
+    val remaperConfig  = RegField(64, remaperConfigR.asUInt, RegWriteFn((ivalid, oready, data) => {
       when (ivalid ) { remaperConfigR :=  new RemaperConfig().fromBits(data) }
       (true.B, true.B)
     }), RegFieldDesc("Remaper", "Config"))
-    when(reset) {
-     remaperConfigR.max_blockcycles    := 0.U
-     remaperConfigR.en                 := true.B //lowest bit
-   }
 
-    val attackDetectorConfigR = Reg(new AttackDetectorConfig())
-    val attackDetectorConfig  = RegField.w(64, RegWriteFn((ivalid, oready, data) => {
-      when (ivalid ) { attackDetectorConfigR :=  new AttackDetectorConfig().fromBits(data) }
+    val atDetConfig0  = RegField(64, atDetConfig0R.asUInt, RegWriteFn((ivalid, oready, data) => {
+      when (ivalid ) { atDetConfig0R :=  new AttackDetectorConfig0().fromBits(data) }
       (true.B, true.B)
-    }), RegFieldDesc("AttackDetector", "Config"))
-    when(reset) {
-      attackDetectorConfigR.max_access      := 0.U //3 access per block
-      attackDetectorConfigR.en_access       := true.B
-      attackDetectorConfigR.max_evicts      := 0.U //10 evicts per block
-      attackDetectorConfigR.en_evicts       := true.B //lowest bit
-    }
+    }), RegFieldDesc("AttackDetector", "Config0"))
+
+    val atDetConfig1  = RegField(64, atDetConfig1R.asUInt, RegWriteFn((ivalid, oready, data) => {
+      when (ivalid ) { atDetConfig1R :=  new AttackDetectorConfig1().fromBits(data) }
+      (true.B, true.B)
+    }), RegFieldDesc("AttackDetector", "Config1"))
 
     val regmap = ctlnode.map { c =>
       c.regmap(
         0x000 -> RegFieldGroup("Config", Some("Information about the Cache Configuration"), Seq(banksR, waysR, lgSetsR, lgBlockBytesR)),
         0x200 -> (if (control.get.beatBytes >= 8) Seq(flush64) else Seq()),
         0x240 -> Seq(flush32),
-        0x280 -> Seq(remaperConfig),
-        0x2C0 -> Seq(attackDetectorConfig)
+        //0x280 -> Seq(remaperConfig),
+        0x2C0 -> Seq(atDetConfig0),
+        0x2C8 -> Seq(atDetConfig1)
       )
     }
 
@@ -241,7 +246,8 @@ class InclusiveCache(
 
       //config
       scheduler.io.config.remaper        := remaperConfigR
-      scheduler.io.config.attackdetector := attackDetectorConfigR
+      scheduler.io.config.atdetconf0     := atDetConfig0R
+      scheduler.io.config.atdetconf1     := atDetConfig1R
 
       // Fix-up the missing addresses. We do this here so that the Scheduler can be
       // deduplicated by Firrtl to make hierarchical place-and-route easier.

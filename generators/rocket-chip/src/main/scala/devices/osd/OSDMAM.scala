@@ -113,8 +113,8 @@ class OSDMAM(implicit p: Parameters) extends LazyModule {
     rinflights   := rinflights + (mem.a.fire() && !req.rw).asUInt()
     wwaitacks    := wwaitacks  - (mem.d.fire() &&  req.rw).asUInt() + (mem.a.fire() &&  req.rw).asUInt()
     winflights   := winflights + (mem.a.fire() &&  req.rw).asUInt()
-    srcID        := srcID + (mem.a.fire() && req.rw).asUInt()
-    srcIDv       := (srcIDv & Mux(mem.a.fire() && req.rw, ~UIntToOH(mem.a.bits.source), ~0.U((1 << srcID.getWidth).W))) | Mux(mem.d.fire() && req.rw, UIntToOH(mem.d.bits.source), 0.U)
+    srcID        := srcID + mem.a.fire().asUInt()
+    srcIDv       := (srcIDv & Mux(mem.a.fire(), ~UIntToOH(mem.a.bits.source), ~0.U((1 << srcID.getWidth).W))) | Mux(mem.d.fire(), UIntToOH(mem.d.bits.source), 0.U)
     when(io.req.fire()) {
       req         := io.req.bits
       busy        := true.B
@@ -210,7 +210,7 @@ class OSDMAM(implicit p: Parameters) extends LazyModule {
 
     // ------------- mem stage -----------------------//
     val memget = edge.Get(
-          fromSource = 0.U,  //inflights
+          fromSource = srcID,  //inflights
           toAddress  = Cat(req.addr >> lgmem_dwB, 0.U(lgmem_dwB.W)), //must align
           lgSize     = lgmem_dwB.U)
     val memput = edge.Put(
@@ -221,7 +221,7 @@ class OSDMAM(implicit p: Parameters) extends LazyModule {
           mask       = ws2_dq.io.deq.bits.mask,
           corrupt    = false.B)
     mem.a.bits      := Mux(req.rw, memput._2, memget._2)
-    mem.a.valid     := Mux(req.rw, ws2_dq.io.deq.valid, rs1_busy & (rwaitacks < 1.U) & (req.addr < req_endaddr)) & !req.pfc & srcIDv(srcID)
+    mem.a.valid     := Mux(req.rw, ws2_dq.io.deq.valid, rs1_busy && (rwaitacks < 1.U) && (req.addr < req_endaddr)) && !req.pfc && srcIDv(srcID)
     mem.d.ready     := Mux(req.rw, true.B,  rs0_dq.io.enq.ready)
     /*when(mem.a.valid) {
       when(req.rw  & putlegal) { putlegal := memput._1 }

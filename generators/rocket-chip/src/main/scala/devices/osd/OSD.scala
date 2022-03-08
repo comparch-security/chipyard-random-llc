@@ -198,8 +198,8 @@ class OSD extends Module() {
   io.glip.osd_rst    := RegNext(osdtbb.io.osd_rst)
 
   //osd_scm: Subnet Control Module
-  io.scm.sys_rst     := RegNext(osdtbb.io.sys_rst)
-  io.scm.cpu_rst     := RegNext(osdtbb.io.cpu_rst)
+  io.scm.sys_rst     := RegNext(osdtbb.io.sys_rst)  //&&  Bool(false)
+  io.scm.cpu_rst     := RegNext(osdtbb.io.cpu_rst)  //&&  Bool(false)
 
   //osd_uart: UART Device Emulation Module  connect to sifive uart
   io.uartdem.drop           := osdtbb.io.uart_drop
