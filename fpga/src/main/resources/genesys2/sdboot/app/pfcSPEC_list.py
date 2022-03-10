@@ -199,7 +199,7 @@ for config_id in range(0, len(configs)):
            PFC(), PFC(), PFC(), PFC(), PFC(), PFC(), PFC(), PFC(), PFC(), PFC(),
            PFC(), PFC(), PFC(), PFC(), PFC(), PFC(), PFC(), PFC(), PFC(), PFC(),
            PFC(), PFC(), PFC(), PFC(), PFC(), PFC(), PFC(), PFC(), PFC(), PFC(),
-           PFC(), PFC(), PFC(), PFC(), PFC()]]
+           PFC(), PFC(), PFC(), PFC(), PFC(), PFC()]]
   for pfc_id in range(0, len(pfc[0])):
     pfc[config_id][pfc_id].runtime    = 0
     pfc[config_id][pfc_id].cmd        = []

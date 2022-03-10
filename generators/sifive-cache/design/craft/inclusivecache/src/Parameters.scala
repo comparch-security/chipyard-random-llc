@@ -194,7 +194,7 @@ case class InclusiveCacheParameters(
   val relLists = 2
   val relBeats = relLists*cache.blockBeats
 
-  val flatAddresses = AddressSet.unify(outer.manager.managers.flatMap(_.address))
+  val flatAddresses = AddressSet.unify(outer.manager.managers.flatMap(_.address))//.tail
   val pickMask = AddressDecoder(flatAddresses.map(Seq(_)), flatAddresses.map(_.mask).reduce(_|_))
 
   def bitOffsets(x: BigInt, offset: Int = 0, tail: List[Int] = List.empty[Int]): List[Int] =

@@ -83,7 +83,7 @@ class RandomTableBase(params: InclusiveCacheParameters) extends Module
   io.req.ready  :=  wipeDone
 
   //resp
-  io.resp       := Cat(rtab_resp, getr(rtab_resp))  ^ ghkey(params.setBits-1, 0)
+  io.resp       := (Cat(rtab_resp, getr(rtab_resp))  ^ ghkey(params.setBits-1, 0))
 
   //update
   when(!wipeDone) { wipeData := wipeData + (lfsr ^ io.mix.bits) }
@@ -374,8 +374,10 @@ class DirectoryEntrySwaper(params: InclusiveCacheParameters) extends Module
   iways.map { each_i => {
     val matchOH  = Cat(iways.map{ each_j => { each_i.state =/= INVALID && each_j.state =/= INVALID && each_i.tag === each_j.tag }}.reverse)
     val matchs   = PopCount(matchOH)
-    when(matchs > 1.U) { printf("redundant match tag_%x set_%x match ways_%x", each_i.tag, RegNext(io.read.bits.set), matchOH) }
-    assert(matchs <= 1.U)
+    when(RegNext(io.read.valid)) {
+      when(matchs > 1.U) { printf("redundant match tag_%x set_%x match ways_%x\n", each_i.tag, RegNext(io.read.bits.set), matchOH) }
+      assert(matchs <= 1.U)
+    }
   }}
 
   if(params.remap.enableDirEntrySwaperLog)  {
@@ -453,7 +455,7 @@ class DataBlockSwaper(params: InclusiveCacheParameters) extends Module
 
   //io.rreq.ready    := s_idle.andR
   io.rreq.ready    := (0 until numBanks).map(  b => {
-    s_idle(b) || (io.ireq(b).ready && io.ireq(b).bits.wen && write_beats(b) === last_Beats)
+    s_idle(b) || (io.ireq(b).fire() && io.ireq(b).bits.wen && write_beats(b) === last_Beats)
   }).andR
   when(io.rreq.fire()) {  rreq := io.rreq.bits  }
   (0 until numBanks).map(  b => {
@@ -610,7 +612,7 @@ class Remaper(params: InclusiveCacheParameters) extends Module {
   val s_swdone     = RegInit(true.B)
   val s_newset     = RegInit(false.B) //swap to new set
   val s_finish     = RegInit(false.B)
-  val s_1stpause   = RegInit(true.B) //when receive req we should wait all safe
+  val s_1stpause   = RegInit(false.B) //when receive req we should wait all safe
   val s_oneloc     = RegInit(true.B)
   val w_dir        = RegInit(false.B)
   val w_continue   = RegInit(false.B)
@@ -622,7 +624,7 @@ class Remaper(params: InclusiveCacheParameters) extends Module {
   val p_current    = Reg(new SwaperResp(params))
   val dbswap       = Reg(Valid(new SwaperReq(params)))
   val dbnext       = Reg(Valid(UInt(width = params.setBits)))
-  val finish       = s_finish && !io.schreq  && !io.mshrbusy
+  val finish       = s_finish && !io.schreq
   val newset       = Mux(loc_next === RTAL.RIGH, io.rtresp.bits.rhset, io.rtresp.bits.lhset)
 
   when(finish) {
@@ -650,9 +652,9 @@ class Remaper(params: InclusiveCacheParameters) extends Module {
     dbswap.valid := true.B
     dbswap.bits  := io.dbreq.bits
   }
-  when( io.rtresp.valid )  {
+  when( io.definish.valid )  {
     dbnext.valid     := true.B
-    dbnext.bits      := newset
+    dbnext.bits      := io.definish.bits
   }
 
   //io.status
@@ -756,14 +758,15 @@ class Remaper(params: InclusiveCacheParameters) extends Module {
   when( finish                                                                         ) {   s_idle       := true.B    }
   when( io.req.fire()                                                                  ) {   s_idle       := false.B   }
   when( io.req.fire()                                                                  ) {   s_1stpause   := true.B    }
-  when( io.dereq.fire()                                                                ) {   s_1stpause   := false.B   }
+  when( s_1stpause && dbreq.io.enq.ready && io.rtreadys && !io.schreq                  ) {   s_1stpause   := false.B   }
   when( io.rtresp.valid                                                                ) {   s_newset     := true.B    }
   when( io.definish.valid                                                              ) {   s_newset     := false.B   }
   when( io.deresp.valid && io.deresp.bits.nop                                          ) {   s_swdone     := true.B    }
   when( dbreq.io.enq.ready && (w_dir || w_evictdone)                                   ) {   s_swdone     := true.B    }
+  //when( dbreq.io.enq.ready && io.dbreq.ready && (w_dir || w_evictdone)                 ) {   s_swdone     := true.B    }
   when( (io.xreq.fire() && io.xreq.bits.opcode === XOPCODE.SWAP) || io.continue.fire() ) {   s_swdone     := false.B   }
   when( finish                                                                         ) {   s_oneloc     := true.B    }
-  when( io.dereq.fire()                                                                ) {   s_oneloc     := false.B   }
+  when( s_1stpause && dbreq.io.enq.ready && io.rtreadys && !io.schreq                  ) {   s_oneloc     := false.B   }
   when( finish                                                                         ) {   s_finish     := false.B   }
   when( io.deresp.valid && io.deresp.bits.set === lastset.U && io.deresp.bits.nop      ) {   s_finish     := true.B    }
 
@@ -773,7 +776,7 @@ class Remaper(params: InclusiveCacheParameters) extends Module {
     w_evictdone  := false.B
   }.otherwise {
     when(!w_dir && xreq.io.enq.ready) {
-      when( s_1stpause && dbreq.io.enq.ready && io.rtreadys && !io.schreq && !io.mshrbusy ) {  w_dir   := true.B   }  //first swap req
+      when( s_1stpause && dbreq.io.enq.ready && io.rtreadys && !io.schreq                 ) {  w_dir   := true.B   }  //first swap req
       when( io.deresp.valid ) {
         when( io.deresp.bits.nop && io.deresp.bits.set =/= lastset.U                      ) {  w_dir   := true.B   }  //need do nothing  
         when( !io.deresp.bits.nop && io.deresp.bits.tail && !io.deresp.bits.evict.valid   ) {  w_dir   := true.B   }  //tail but not need evict

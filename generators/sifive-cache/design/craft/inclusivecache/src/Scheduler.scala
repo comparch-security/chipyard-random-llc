@@ -458,7 +458,7 @@ class Scheduler(params: InclusiveCacheParameters) extends Module
     }
     sinkX.io.blocksr    :=  (dir_wque.valid && dir_wque.bits.set === sinkX.io.sset)                   || //can not inspect write fifo!! so wait write fifo drained
                             (fsinkA.io.back.valid || sinkA.io.req.valid || !sinkC.io.sinkA_safe)      || //change prio below than a (usuallly c > x > a)
-                            (Cat(mshrs.map { m => m.io.status.valid && (!m.io.status.bits.bssafe || m.io.schedule.bits.rmp.valid) }).orR)
+                            (Cat(mshrs.map { m => m.io.status.valid && (m.io.status.bits.set === sinkX.io.sset || m.io.status.bits.swz || !m.io.status.bits.bssafe || m.io.schedule.bits.rmp.valid) }).orR)
                             //(Cat(mshrs.map { m => m.io.status.valid && (!m.io.status.bits.bssafe || m.io.schedule.bits.rmp.valid  || (m.io.status.bits.set === sinkX.io.sset)) }).orR)
                             //(RegNext((request.valid           && request.bits.newset.valid     && request.bits.newset.bits     === sinkX.io.sset) ||
                             //         (requests.io.pop.valid   && requests.io.data.newset.valid && requests.io.data.newset.bits === sinkX.io.sset) )) //low prio than rereq(lowest prioirty)
@@ -471,7 +471,7 @@ class Scheduler(params: InclusiveCacheParameters) extends Module
     bankedStore.io.rreq   <>  remaper.io.dbreq
 
     //remaper scheduler status
-    remaper.io.schreq    :=  randomtable.io.req.map(_.valid).orR             ||
+    remaper.io.schreq    :=  randomtable.io.resp.map(_.valid).orR            ||
                              fsinkA.io.back.valid  || fsinkX.io.back.valid   ||
                               sinkA.io.busy        ||  sinkX.io.busy         ||  sinkC.io.busy  ||  !requests.io.empty
     remaper.io.mshrbusy  := Cat(mshrs.map { m => m.io.status.valid }).orR()

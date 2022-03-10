@@ -106,7 +106,7 @@ class MSHR(params: InclusiveCacheParameters) extends Module
   val request = Reg(new AllocateRequest(params))
   val meta_valid = RegInit(Bool(false))
   val meta = Reg(new DirectoryResult(params))
-  val loc  = Reg(new RemaperStatusIO(params))
+  val rstatus_latch  = RegEnable(io.rstatus, io.allocate.valid)
 
   // Define which states are valid
   when (meta_valid) {
@@ -191,11 +191,11 @@ class MSHR(params: InclusiveCacheParameters) extends Module
   //   acquire waiting for grant, inner release gets queued, outer probe -> inner probe -> deadlock
   // ... this is possible because the release+probe can be for same set, but different tag
   io.status.bits.bssafe := {
-    val bdswset_match = Wire(init = io.rstatus.dbswap.bits.set === io.status.bits.set)
-    val bdswway_match = Wire(init = io.rstatus.dbswap.bits.way === io.status.bits.way)
+    val bsswset_match = Wire(init = io.rstatus.dbswap.bits.set === io.status.bits.set)
+    val bsswway_match = Wire(init = io.rstatus.dbswap.bits.way === io.status.bits.way)
     val bsneset_match = Wire(init = io.rstatus.dbnext.valid && io.rstatus.dbnext.bits === io.status.bits.set)
-    (!s_swap || !io.rstatus.dbswap.valid || Mux(!meta_valid, !bdswset_match && !bsneset_match, !((bdswset_match && bdswway_match) || meta.swz)))
-    //when(!meta_valid) means has not receive dir resp(or repeat) so not sure way
+    //(!s_swap || !io.rstatus.dbswap.valid || (!bsswset_match && !bsswway_match && !meta.swz))
+    (!s_swap || !io.rstatus.dbswap.valid || (!(bsswset_match && bsswway_match) && !meta.swz))
   }
   io.status.bits.deadlock  := false.B
   when(w_timer > 8192.U) {
@@ -264,7 +264,7 @@ class MSHR(params: InclusiveCacheParameters) extends Module
   val meta_no_clients = !meta.clients.orR
   val req_promoteT = req_acquire && Mux(meta.hit, meta_no_clients && meta.state === TIP, gotT)
 
-  final_meta_writeback.loc := request.loc(0)
+  final_meta_writeback.loc := Mux(rstatus_latch.oneloc, rstatus_latch.cloc, Mux(meta.state === INVALID, rstatus_latch.nloc, meta.loc))
   when (request.prio(2) && Bool(!params.firstLevel)) { // always a hit
     final_meta_writeback.dirty   := meta.dirty || request.opcode(0)
     final_meta_writeback.state   := Mux(request.param =/= TtoT && meta.state === TRUNK, TIP, meta.state)
@@ -295,7 +295,9 @@ class MSHR(params: InclusiveCacheParameters) extends Module
                                     Mux(req_acquire, req_clientBit, UInt(0))
     final_meta_writeback.tag := request.tag
     final_meta_writeback.hit := Bool(true)
+    when(!meta.hit && !rstatus_latch.oneloc) { final_meta_writeback.loc :=  rstatus_latch.nloc  }
   }
+  //final_meta_writeback.loc := request.loc(0)
 
   when (bad_grant) {
     when (meta.hit) {
@@ -667,7 +669,7 @@ class MSHR(params: InclusiveCacheParameters) extends Module
       when (isToN(new_request.param) && (new_meta.clients & new_clientBit) =/= UInt(0)) {
         s_writeback := Bool(false)
       }
-      when(new_meta.swz)  { s_nop   := Bool(false) }  //insert nop to wait write dir finished and force repeat to read dir
+      when(new_meta.swz || request.tag === 0.U)  { s_nop   := Bool(false) }  //insert nop to wait write dir finished and force repeat to read dir so avoid repeat bug caused by tag 0 match
       when(!new_meta.hit) { printf("release not hit tag %x set %x\n", request.tag, request.set) }
       assert (new_meta.hit)
     }
@@ -689,7 +691,7 @@ class MSHR(params: InclusiveCacheParameters) extends Module
         }
       }
       when(new_request.opcode === XOPCODE.SWAP && Bool(params.remap.en)) {
-        s_nop         := Bool(false)             //insert nop to wait write dir finished and force repeat to read dir
+        s_nop         := Bool(false)             //insert nop to wait write dir finished and force repeat to read dir so avoid repeat bug caused by tag 0 match
         s_swap        := Bool(false)
         meta.swz      := Bool(false)
       }
@@ -736,7 +738,7 @@ class MSHR(params: InclusiveCacheParameters) extends Module
       when (!new_request.opcode(2) && new_meta.hit && !new_meta.dirty) {
         s_writeback := Bool(false)
       }
-      when(new_meta.swz)  { s_nop   := Bool(false) }  //insert nop to wait write dir finished and force repeat to read dir
+      when(new_meta.swz || request.tag === 0.U)  { s_nop   := Bool(false) }  //insert nop to wait write dir finished and force repeat to read dir so avoid repeat bug caused by tag 0 match
     }
   }
 
