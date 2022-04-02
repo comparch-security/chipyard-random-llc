@@ -60,7 +60,9 @@ trait HasSchedulerPFC { this: sifive.blocks.inclusivecache.Scheduler =>
 
   def connectPFC(params: sifive.blocks.inclusivecache.InclusiveCacheParameters) = {
     io.pfcupdate.g0.elements.foreach(_._2 := false.B)
-    io.pfcupdate.remaper  := remaper.io.pfcupdate
+    io.pfcupdate.remaper          := remaper.io.pfcupdate
+    io.pfcupdate.remaper.atcheck  := attackdetector.io.pfcupdate.atcheck
+    io.pfcupdate.remaper.atdetec  := attackdetector.io.pfcupdate.atdetec
 
     freechips.rocketchip.pfc.connect.connectTileLinkPFC(io.in,  params.inner, io.pfcupdate.itlink)
     freechips.rocketchip.pfc.connect.connectTileLinkPFC(io.out, params.outer, io.pfcupdate.otlink)

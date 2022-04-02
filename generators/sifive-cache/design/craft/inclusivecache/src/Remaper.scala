@@ -799,9 +799,9 @@ class Remaper(params: InclusiveCacheParameters) extends Module {
   io.pfcupdate.swap      := io.dbreq.fire()
   io.pfcupdate.evict     := io.xreq.fire() && io.xreq.bits.opcode === XOPCODE.FLUSH
   io.pfcupdate.ebusy     := !s_idle && w_evictdone && io.dereq.ready
-  io.pfcupdate.pause     := 0.U
   io.pfcupdate.finish    := finish
-  io.pfcupdate.atdetec   := io.req.fire() && io.req.bits.atdetec
+  //io.pfcupdate.atcheck   := io.req.bits.check
+  //io.pfcupdate.atdetec   := io.req.fire() && io.req.bits.atdetec
 
   if(params.remap.enableRemaperLog) {
     val timer        = RegInit(UInt(0, width = log2Up(blocks)+6))
@@ -817,7 +817,6 @@ class Remaper(params: InclusiveCacheParameters) extends Module {
     when( io.pfcupdate.swap      ) { swaps  := swaps  + 1.U  }
     when( io.pfcupdate.evict     ) { evicts := evicts + 1.U  }
     when( io.pfcupdate.ebusy     ) { ebusys := ebusys + 1.U  }
-    when( io.pfcupdate.pause     ) { pauses := pauses + 1.U  }
     when( io.pfcupdate.finish    ) {
       timer   := 0.U
       nops    := 0.U

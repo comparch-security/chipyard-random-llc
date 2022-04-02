@@ -316,6 +316,6 @@ class RemaperPFCReg extends PFCRegBundle {
   val swap               = Input(Bool())   //event3
   val evict              = Input(Bool())   //event4
   val ebusy              = Input(Bool())   //event5
-  val pause              = Input(Bool())   //event6
+  val atcheck            = Input(Bool())   //event6
   val atdetec            = Input(Bool())   //event7
 }

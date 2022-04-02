@@ -232,7 +232,7 @@ uint64_t main (int argc, char *argv[])
          fprintf(fp, speccmd[sel]);
          fprintf(fp, "\n");
          config_pfc();
-         sleep(60); //wait spec run
+         sleep(60); //warm up
          get_pfc_all(s_pfccsr);
          e_inst = get_pfc_inst()+inst;
          sleep(time*60);
