@@ -23,6 +23,7 @@ import freechips.rocketchip.util._
 import freechips.rocketchip.rocket._
 import freechips.rocketchip.pfc._
 import scala.math._
+import chisel3.util.random.FibonacciLFSR
 
 object MultiplierTag {
   val SZ   = 2
@@ -145,8 +146,8 @@ class ExponentialMovingAverageZScore(
   class TempResult extends ExponentialMovingAverageZScoreReq(setBits, evIntWidth + evFracWidth, discountWidth) {
      val evMulErr     = UInt(width = 2 * evIntWidth + evFracWidth)   //evMulErr  = ev * evErrAbs = ev * |ev - evAver|
      val evWZscore    = UInt(width = 3 * evIntWidth + evFracWidth)   //evWZscore = evMulErr * evStdDevReci
-     val emazAdden    = Vec(2, UInt(width = 3 * evIntWidth + emazFracWidth))
-     val result       = UInt(width = emazIntWidth + emazFracWidth)   //result = emazAdden(0) + emazAdden(1)
+     val emazAddend   = Vec(2, UInt(width = 3 * evIntWidth + emazFracWidth))
+     val result       = UInt(width = emazIntWidth + emazFracWidth)   //result = emazAddend(0) + emazAddend(1)
      //override def cloneType = new TempResult(setBits, emazWidth, emazWidth, discountWidth).asInstanceOf[this.type]
   }
 
@@ -160,6 +161,7 @@ class ExponentialMovingAverageZScore(
     val max       = new TempResult()
   }
 
+  val lfsr       = FibonacciLFSR.maxPeriod(16, true.B, seed = Some(11))
   val mulreqArb  = Module(new Arbiter(new MultiplierReq(mulWidth, MultiplierTag.SZ), 2))
   val s_idle :: s_req :: s_resp :: s_finish :: Nil = Enum(Bits(), 4)
   class Stage extends Bundle {
@@ -206,32 +208,39 @@ class ExponentialMovingAverageZScore(
   }
   when(stage(1).state === s_finish && stage(2).state === s_idle) { stage(1).state := s_idle }
 
-  //stage 3 : emazAdden(0) = evWZscore >> discount emazAdden(1) = emazresp - (emazresp >> discount)
+  //stage 3 : emazAddend(0) = evWZscore >> discount emazAddend(1) = emazresp - (emazresp >> discount)
   when(stage(1).state === s_finish && stage(2).state === s_idle) {
     stage(2).state                 := s_req
     stage(2).temp                  := stage(1).temp
-    stage(2).temp.emazAdden(0)     := stage(1).temp.evWZscore >> (evFracWidth - emazFracWidth) >> io.req.bits.discount
+    stage(2).temp.emazAddend(0)    := ((stage(1).temp.evWZscore >> (evFracWidth - emazFracWidth).U >> (io.req.bits.discount - 1.U)) + 1.U) >> 1.U
   }
   io.emazread.valid                := stage(2).state === s_req
   io.emazread.bits                 := stage(2).temp.set
   when(io.emazread.fire())        { stage(2).state := s_resp }
   when(stage(2).state === s_resp   && io.emazresp.valid) {
     stage(2).state                 := s_finish
-    stage(2).temp.emazAdden(1)     := io.emazresp.bits - (io.emazresp.bits >> io.req.bits.discount)
+    stage(2).temp.emazAddend(1)    := io.emazresp.bits - (io.emazresp.bits >> io.req.bits.discount)
+    when((io.emazresp.bits >> io.req.bits.discount) > 1.U) {
+      stage(2).temp.emazAddend(1)  := io.emazresp.bits - (((io.emazresp.bits >> (io.req.bits.discount - 1.U)) + 1.U) >> 1.U)
+    }
+    when((io.emazresp.bits >> io.req.bits.discount) === 0.U) {
+      (1 to 7).map(i => { when(io.req.bits.discount === i.U && lfsr(i-1, 0) < io.emazresp.bits(i-1, 0)) { stage(2).temp.emazAddend(1) := io.emazresp.bits - 1.U }})
+    }
+    when(io.req.bits.discount === 0.U || io.emazresp.bits === 0.U) { stage(2).temp.emazAddend(1) := 0.U }
   }
   when(stage(2).state === s_finish && stage(3).state === s_idle) { stage(2).state := s_idle }
 
-  //stage 4 : result = emazAdden(0) + emazAdden(1)
-  val emazAddenAdd   = stage(2).temp.emazAdden(1) + stage(2).temp.emazAdden(0)
-  val emazAddenSub   = stage(2).temp.emazAdden(1) - stage(2).temp.emazAdden(0)
+  //stage 4 : result = emazAddend(0) + emazAddend(1)
+  val emazAddendAdd  = stage(2).temp.emazAddend(1) + stage(2).temp.emazAddend(0)
+  val emazAddendSub  = stage(2).temp.emazAddend(1) - stage(2).temp.emazAddend(0)
   val resultMax      = (1 << stage(2).temp.result.getWidth) - 1
-  val overflowHi     = emazAddenAdd > resultMax.U
-  val overflowLo     = stage(2).temp.emazAdden(1) < stage(2).temp.emazAdden(0)
+  val overflowHi     = emazAddendAdd >= resultMax.U
+  val overflowLo     = stage(2).temp.emazAddend(1) <= stage(2).temp.emazAddend(0)
   when(stage(2).state === s_finish && stage(3).state === s_idle) {
     stage(3).state                 := s_req
     stage(3).temp                  := stage(2).temp
-    stage(3).temp.result           := Mux(stage(2).temp.evErrNeg, Mux(overflowLo,         0.U, emazAddenSub),
-                                                                  Mux(overflowHi, resultMax.U, emazAddenAdd))
+    stage(3).temp.result           := Mux(stage(2).temp.evErrNeg, Mux(overflowLo,         0.U, emazAddendSub),
+                                                                  Mux(overflowHi, resultMax.U, emazAddendAdd))
   }
   io.emazwrite.valid               := stage(3).state === s_req && !io.emazread.valid
   io.emazwrite.bits.set            := stage(3).temp.set
@@ -276,16 +285,16 @@ class AttackDetector(params: InclusiveCacheParameters) extends Module
 
   //fix point parameters
   val evIntWidth                     = 5
-  val evFracWidth                    = min(10, params.setBits)
+  val evFracWidth                    = params.setBits
   val evSqIntWidth                   = 2 * evIntWidth
   val evSqFracWidth                  = 2 * evFracWidth
   val emazIntWidth                   = io.config1.zthreshold.getWidth                 //exponential moving average
-  val emazFracWidth                  = 4                                              //exponential moving average
+  val emazFracWidth                  = evFracWidth                                    //exponential moving average
   val mulWidth                       = 3 * evIntWidth + evSqFracWidth
   val mulLatency                     = 2
   require(evFracWidth   > 2)
   require(emazFracWidth > 1)
-  require(evFracWidth > emazFracWidth)
+  require(evFracWidth >= emazFracWidth)
 
   val laseSet = (1 << params.setBits) - 1
   def UIntMax(u:        UInt):  UInt = { ((1 << u.getWidth) -1).U        }
@@ -342,9 +351,9 @@ class AttackDetector(params: InclusiveCacheParameters) extends Module
   val evFix                      = evInt2Fix(evicts)
   val evErrNeg                   = evFix < evAvera
   val evErrAbs                   = Mux(evErrNeg, evAvera - evInt2Fix(evicts), evInt2Fix(evicts) - evAvera)
-  val evErrSqSum                 = Reg(UInt((evSqIntWidth + evSqFracWidth + params.setBits).W))
-  val evErrSqAvera               = evErrSqSum(evErrSqSum.getWidth - 1, params.setBits)
-  val evStdDev                   = Reg(UInt((evIntWidth + evFracWidth).W))
+  val evSqSum                    = Reg(UInt((evSqIntWidth + evSqFracWidth + params.setBits).W))
+  val evSqAvera                  = evSqSum(evSqSum.getWidth - 1, params.setBits)
+  val evStdDev                   = Reg(UInt((evIntWidth + evFracWidth).W)) //Root Mean Square
   val evStdDevReci               = Reg(UInt((evIntWidth + evFracWidth).W))
 
   io.remap.bits.atdetec := max_emaz > Cat(io.config1.zthreshold, 0.U(emazFracWidth.W))
@@ -410,7 +419,7 @@ class AttackDetector(params: InclusiveCacheParameters) extends Module
   when( state === s_idle ) {
     when(count_period > io.config1.period && io.config1.enzth) {
       state                  := s_SqSum
-      evErrSqSum             := 0.U
+      evSqSum                := 0.U
       count_period           := 0.U
       calReadEvS1.valid      := true.B
       calReadEvS1.bits       := 0.U
@@ -504,8 +513,8 @@ class AttackDetector(params: InclusiveCacheParameters) extends Module
   mulBusyCnt := Mux(mul.io.req.valid, mulLatency.U, Mux(mulBusyCnt === 0.U, 0.U, mulBusyCnt - 1.U))
   val mulReqArb = Module(new Arbiter(new MultiplierReq(mulWidth, MultiplierTag.SZ), 3))
   mulReqArb.io.in(0).valid     := calReadEvS2.valid && state === s_SqSum
-  mulReqArb.io.in(0).bits.in1  := evErrAbs
-  mulReqArb.io.in(0).bits.in2  := evErrAbs
+  mulReqArb.io.in(0).bits.in1  := evInt2Fix(evicts)
+  mulReqArb.io.in(0).bits.in2  := evInt2Fix(evicts)
   mulReqArb.io.in(0).bits.tag  := MultiplierTag.ERRSQ
   mulReqArb.io.in(1)           <> sar.io.mulreq
   mulReqArb.io.in(2)           <> emaz.io.mulreq
@@ -518,14 +527,14 @@ class AttackDetector(params: InclusiveCacheParameters) extends Module
   sar.io.mulresp               := mul.io.resp
   emaz.io.mulresp              := mul.io.resp
   when(mul.io.resp.valid && mul.io.resp.bits.tag === MultiplierTag.ERRSQ) {
-    evErrSqSum                 := evErrSqSum + mul.io.resp.bits.data.asUInt()
+    evSqSum                   := evSqSum + mul.io.resp.bits.data.asUInt()
   }
 
   //sar: req
   sar.io.req.valid             := state === s_StdDevReq || state === s_ReciReq
   sar.io.req.bits.fn           := Mux(state === s_StdDevReq, SuccessiveApproximateRegisterFn.SQRT, SuccessiveApproximateRegisterFn.DIV)
   sar.io.req.bits.in           := evStdDev //when s_StdDevReq in is useless
-  sar.io.req.bits.target       := Mux(state === s_StdDevReq, evErrSqAvera,  1.U << evSqFracWidth)
+  sar.io.req.bits.target       := Mux(state === s_StdDevReq, evSqAvera,  1.U << evSqFracWidth)
   //sar: resp
   when(sar.io.resp.valid) {
     when( state === s_StdDevResp ) { evStdDev     := sar.io.resp.bits.result }
@@ -576,15 +585,16 @@ class AttackDetector(params: InclusiveCacheParameters) extends Module
   //log
   when((io.remap.fire() && io.remap.bits.atdetec) || RegNext(emaz.io.emazwrite.valid && emaz.io.emazwrite.bits.set === laseSet.U)) {
     val maxLatch = emaz.io.max
-    printf("max_emazSet: %x_H emaz %d_D ev: %d_D oldDisced %d_D evSum: %d_D evErrSqSum: %d_D evStdDev: %d_D 1/evStdDev: %d_D\n",
+    printf("max_emazSet: %x_H emaz %d_D ev: %d_D oldDisced %d_D evSum: %d_D evSqSum: %d_D evStdDev: %d_D 1/evStdDev: %d_D\n",
             maxLatch.set,
             maxLatch.result,
             maxLatch.ev(maxLatch.ev.getWidth - 1, evFracWidth),
-            maxLatch.emazAdden(1),
+            maxLatch.emazAddend(1),
             evSum,
-            evErrSqSum,
+            evSqSum,
             evStdDev,
             evStdDevReci
           )
+    assert(max_emaz <= Cat(io.config1.zthreshold, 0.U(emazFracWidth.W)))
   }
 }
