@@ -824,6 +824,7 @@ class NonBlockingDCacheModule(outer: NonBlockingDCache) extends HellaCacheModule
   val s1_writeback = s1_clk_en && !s1_valid && !s1_replay
   val s2_data_sel = RegNext(Mux(s1_wb_way_en === 0.U, s1_tag_match_way, s1_wb_way_en))
   val s2_tag_match_way = RegEnable(s1_tag_match_way, s1_clk_en)
+  val s2_tag_match_way_UInt = OHToUInt(s2_tag_match_way)
   val s2_tag_match = s2_tag_match_way.orR
   val s2_hit_state = Mux1H(s2_tag_match_way, wayMap((w: Int) => RegEnable(meta.io.resp(w).coh, s1_clk_en)))
   val (s2_has_permission, _, s2_new_hit_state) = s2_hit_state.onAccess(s2_req.cmd)
@@ -884,9 +885,21 @@ class NonBlockingDCacheModule(outer: NonBlockingDCache) extends HellaCacheModule
 
   // replacement policy
   val replacer = cacheParams.replacement
-  val s1_replaced_way_en = UIntToOH(replacer.way)
-  val s2_replaced_way_en = UIntToOH(RegEnable(replacer.way, s1_clk_en))
-  val s2_repl_meta = Mux1H(s2_replaced_way_en, wayMap((w: Int) => RegEnable(meta.io.resp(w), s1_clk_en && s1_replaced_way_en(w))).toSeq)
+  val repl_state_vec     = Reg(Vec(nSets, UInt(width = replacer.nBits)))
+  val s1_repl_set        = RegNext(readArb.io.out.bits.addr >> blockOffBits)
+  val s2_repl_set        = RegNext(s1_repl_set)
+  val s1_repl_state      = Wire(UInt(width = replacer.nBits))
+  val s2_repl_state      = Reg(UInt(width = replacer.nBits))
+  val s2_repl_state_new  = replacer.get_next_state(s2_repl_state, s2_tag_match_way_UInt)
+  val s1_replaced_way_en = UIntToOH(replacer.get_replace_way(s1_repl_state))
+  val s2_replaced_way_en = RegEnable(s1_replaced_way_en, s1_clk_en)
+  val s2_repl_meta       = Mux1H(s2_replaced_way_en, wayMap((w: Int) => RegEnable(meta.io.resp(w), s1_clk_en)).toSeq)
+  s1_repl_state         := repl_state_vec(s1_repl_set)
+  s2_repl_state         := s1_repl_state
+  when((s2_replay || s2_valid_masked && s2_hit) && !s2_data_correctable) {  //cache_resp.valid
+    repl_state_vec(s2_repl_set) := s2_repl_state_new
+    when(s1_repl_set === s2_repl_set) { s1_repl_state := s2_repl_state_new }
+  }
 
   // miss handling
   mshrs.io.req.valid := s2_valid_masked && !s2_hit && (isPrefetch(s2_req.cmd) || isRead(s2_req.cmd) || isWrite(s2_req.cmd))

@@ -45,8 +45,8 @@ case object InclusiveCacheKey extends Field[InclusiveCacheParams]
 
 class WithInclusiveCache(
   nBanks: Int = 1,
-  nWays: Int = 8,
-  capacityKB: Int = 512,
+  nWays: Int = 16,
+  capacityKB: Int = 1024,
   outerLatencyCycles: Int = 40,
   subBankingFactor: Int = 4
 ) extends Config((site, here, up) => {

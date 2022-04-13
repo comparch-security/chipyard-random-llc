@@ -20,7 +20,7 @@ import freechips.rocketchip.pfc._
 
 case class ICacheParams(
     nSets: Int = 64,
-    nWays: Int = 4,
+    nWays: Int = 8,
     rowBits: Int = 128,
     nTLBSets: Int = 1,
     nTLBWays: Int = 32,
@@ -36,7 +36,7 @@ case class ICacheParams(
     fetchBytes: Int = 4) extends L1CacheParams {
   def tagCode: Code = Code.fromString(tagECC)
   def dataCode: Code = Code.fromString(dataECC)
-  def replacement = new RandomReplacement(nWays)
+  def replacement = new SetAssocLRU(nSets, nWays, "plru")
 }
 
 trait HasL1ICacheParameters extends HasL1CacheParameters with HasCoreParameters {
@@ -144,6 +144,7 @@ class ICacheModule(outer: ICache) extends LazyModuleImp(outer)
   val (tl_out, edge_out) = outer.masterNode.out(0)
   // Option.unzip does not exist :-(
   val (tl_in, edge_in) = outer.slaveNode.in.headOption.unzip
+  val replacer = outer.icacheParams.replacement
 
   val tECC = cacheParams.tagCode
   val dECC = cacheParams.dataCode
@@ -172,14 +173,17 @@ class ICacheModule(outer: ICache) extends LazyModuleImp(outer)
 
   val s0_valid = io.req.fire()
   val s0_vaddr = io.req.bits.addr
+  val s0_set   = s0_vaddr(untagBits-1,blockOffBits)
 
   val s1_valid = Reg(init=Bool(false))
   val s1_vaddr = RegEnable(s0_vaddr, s0_valid)
   val s1_tag_hit = Wire(Vec(nWays, Bool()))
+  val s1_set  = s1_vaddr(untagBits-1,blockOffBits)
   val s1_hit = s1_tag_hit.reduce(_||_) || Mux(s1_slaveValid, true.B, addrMaybeInScratchpad(io.s1_paddr))
   dontTouch(s1_hit)
   val s2_valid = RegNext(s1_valid && !io.s1_kill, Bool(false))
   val s2_hit = RegNext(s1_hit)
+  val s2_set = RegNext(s1_set)
 
   val invalidated = Reg(Bool())
   val refill_valid = RegInit(false.B)
@@ -205,7 +209,8 @@ class ICacheModule(outer: ICache) extends LazyModuleImp(outer)
 
   val repl_way = if (isDM) UInt(0) else {
     // pick a way that is not used by the scratchpad
-    val v0 = LFSR(16, refill_fire)(log2Up(nWays)-1,0)
+    //val v0 = LFSR(16, refill_fire)(log2Up(nWays)-1,0)
+    val v0 = RegEnable(replacer.way(refill_idx), refill_valid && !refill_one_beat && refill_cnt === 0.U)
     var v = v0
     for (i <- log2Ceil(nWays) - 1 to 0 by -1) {
       val mask = nWays - (BigInt(1) << (i + 1))
@@ -213,6 +218,11 @@ class ICacheModule(outer: ICache) extends LazyModuleImp(outer)
     }
     assert(!lineInScratchpad(Cat(v, refill_idx)))
     v
+  }
+  when(s2_valid && s2_hit) {
+    val touch_way = Reg(UInt(width = log2Up(nWays)))
+    touch_way := OHToUInt(s1_tag_hit)
+    replacer.access(s2_set, touch_way)
   }
 
   val (tag_array, omSRAM) = DescribedSRAM(

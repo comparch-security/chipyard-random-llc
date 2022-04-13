@@ -22,7 +22,7 @@ import freechips.rocketchip.config._
 import freechips.rocketchip.diplomacy._
 import freechips.rocketchip.tilelink._
 import MetaData._
-import freechips.rocketchip.util.DescribedSRAM
+import freechips.rocketchip.util._
 
 class DirectoryEntry(params: InclusiveCacheParameters) extends InclusiveCacheBundle(params)
 {
@@ -47,6 +47,7 @@ class DirectoryRead(params: InclusiveCacheParameters) extends InclusiveCacheBund
   val set = UInt(width = params.setBits)
   val tag = UInt(width = if(params.remap.en) params.blkadrBits else params.tagBits)
   val swz = Bool()  //read swap zone will trigger swap
+  val update_repl_state = Bool()  //update replace state
 }
 
 class DirectoryResult(params: InclusiveCacheParameters) extends DirectoryEntry(params)
@@ -158,12 +159,35 @@ class Directory(params: InclusiveCacheParameters) extends Module
   val set = params.dirReg(RegEnable(io.read.bits.set, ren), ren1)
 
   // Compute the victim way in case of an evicition
+  class replacerUpdate extends Bundle {
+    val set    = UInt(width = params.setBits)
+    val state  = UInt(width = replacer.nBits)
+  }
+  val replacer = new PseudoLRU(params.cache.ways)
+  val (repl_state_array, _ ) =  DescribedSRAM(
+    name = "repl_state_array",
+    desc = "Repl_State RAM",
+    size = params.cache.sets,
+    data = UInt(width = replacer.nBits)
+  )
+  val replUpdQue   = Module(new Queue(new replacerUpdate(), params.mshrs - 2, pipe = false, flow = false))
+  val s1_repl_state = repl_state_array.read(io.read.bits.set, io.read.valid && io.read.bits.update_repl_state)
+  val s2_repl_state = params.dirReg(s1_repl_state, ren1)
+  val s1_repl_update = RegNext(io.read.valid && io.read.bits.update_repl_state)
+  val s2_repl_update = params.dirReg(s1_repl_update, ren1)
   val victimLFSR = LFSR16(params.dirReg(ren))(InclusiveCacheParameters.lfsrBits-1, 0)
   val victimSums = Seq.tabulate(params.cache.ways) { i => UInt((1 << InclusiveCacheParameters.lfsrBits)*i / params.cache.ways) }
   val victimLTE  = Cat(victimSums.map { _ <= victimLFSR }.reverse)
   val victimSimp = Cat(UInt(0, width=1), victimLTE(params.cache.ways-1, 1), UInt(1, width=1))
-  val victimWayOH = victimSimp(params.cache.ways-1,0) & ~(victimSimp >> 1)
-  val victimWay = OHToUInt(victimWayOH)
+  val victimWay  = params.dirReg(replacer.get_replace_way(s1_repl_state), ren1)
+  val victimWayOH = UIntToOH(victimWay)
+  replUpdQue.io.enq.valid       := s2_repl_update && !io.result.bits.swz
+  replUpdQue.io.enq.bits.set    := set
+  replUpdQue.io.enq.bits.state  := replacer.get_next_state(s2_repl_state, io.result.bits.way)
+  replUpdQue.io.deq.ready       := !(io.read.valid && io.read.bits.update_repl_state)
+  when(!wipeDone || (replUpdQue.io.deq.valid && !(io.read.valid && io.read.bits.update_repl_state))) {
+    repl_state_array.write(Mux(wipeDone, replUpdQue.io.deq.bits.set, wipeSet), Mux(wipeDone, replUpdQue.io.deq.bits.state, 0.U))
+  }
   assert (!ren2 || victimLTE(0) === UInt(1))
   assert (!ren2 || ((victimSimp >> 1) & ~victimSimp) === UInt(0)) // monotone
   assert (!ren2 || PopCount(victimWayOH) === UInt(1))

@@ -17,7 +17,7 @@ import freechips.rocketchip.pfc._
 
 case class DCacheParams(
     nSets: Int = 64,
-    nWays: Int = 4,
+    nWays: Int = 8,
     rowBits: Int = 64,
     subWordBits: Option[Int] = None,
     replacementPolicy: String = "random",
@@ -44,7 +44,7 @@ case class DCacheParams(
 
   def dataScratchpadBytes: Int = scratch.map(_ => nSets*blockBytes).getOrElse(0)
 
-  def replacement = new RandomReplacement(nWays)
+  def replacement = new PseudoLRU(nWays)
 
   def silentDrop: Boolean = !acquireBeforeRelease
 

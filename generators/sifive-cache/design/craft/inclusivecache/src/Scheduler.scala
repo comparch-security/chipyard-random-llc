@@ -300,6 +300,8 @@ class Scheduler(params: InclusiveCacheParameters) extends Module
   //read swap zone will trigger swap
   directory.io.read.bits.swz := !(will_pop && mshr_uses_directory) && request.bits.control && request.bits.opcode === XOPCODE.SWAP
   when(will_pop && mshr_uses_directory) { assert(!(requests.io.data.control && requests.io.data.opcode === XOPCODE.SWAP)) }
+  directory.io.read.bits.update_repl_state := Mux(will_pop && mshr_uses_directory, requests.io.data.prio(0) && !requests.io.data.control && !requests.io.data.newset.valid,
+                                                                                   request.bits.prio(0)     && !request.bits.control     && !request.bits.newset.valid)
 
   // Enqueue the request if not bypassed directly into an MSHR
   requests.io.push.valid := request.valid && queue && !bypassQueue
