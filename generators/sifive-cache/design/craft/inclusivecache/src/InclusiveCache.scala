@@ -36,6 +36,7 @@ class InclusiveCache(
   )(implicit p: Parameters)
     extends LazyModule
     with freechips.rocketchip.pfc.HasInclusiveCachePFCManager
+    with sifive.blocks.inclusivecache.HasRandomBroadCaster
 {
   val access = TransferSizes(1, cache.blockBytes)
   val xfer = TransferSizes(cache.blockBytes, cache.blockBytes)
@@ -262,6 +263,7 @@ class InclusiveCache(
     }
 
     createPFCManager(mods, cache.sets, p(freechips.rocketchip.subsystem.RocketTilesKey).length+1)
+    createRandomBroadCaster(mods)
 
     def json = s"""{"banks":[${mods.map(_.json).mkString(",")}]"""
   }

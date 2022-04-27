@@ -135,7 +135,8 @@ class RocketTileModuleImp(outer: RocketTile) extends BaseTileModuleImp(outer)
     with HasFpuOpt
     with HasLazyRoCCModule
     with HasICacheFrontendModule 
-    with freechips.rocketchip.pfc.HasTilePFCManager {
+    with freechips.rocketchip.pfc.HasTilePFCManager
+    with freechips.rocketchip.subsystem.L2SetIdxHash.HasSlaveL2RANTable {
   Annotated.params(this, outer.rocketParams)
   val core = Module(new Rocket(outer)(outer.p))
 
@@ -198,6 +199,7 @@ class RocketTileModuleImp(outer: RocketTile) extends BaseTileModuleImp(outer)
   ptw.io.requestor <> ptwPorts
 
   connectPFC
+  connectSalveL2RANTable
 }
 
 trait HasFpuOpt { this: RocketTileModuleImp =>

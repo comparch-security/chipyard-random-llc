@@ -5,6 +5,7 @@ package freechips.rocketchip.tilelink
 import Chisel._
 import freechips.rocketchip.util._
 import scala.collection.immutable.ListMap
+import freechips.rocketchip.subsystem.L2SetIdxHash._
 
 abstract class TLBundleBase(params: TLBundleParameters) extends GenericParameterizedBundle(params)
 
@@ -183,6 +184,8 @@ final class TLBundleA(params: TLBundleParameters)
   val mask    = UInt(width = params.dataBits/8)
   val data    = UInt(width = params.dataBits)
   val corrupt = Bool() // only applies to *Data messages
+  val setidx  = Valid(new L2SetIdxHashResp())
+
 }
 final class TLBundleB(params: TLBundleParameters)
   extends TLBundleBase(params) with TLAddrChannel

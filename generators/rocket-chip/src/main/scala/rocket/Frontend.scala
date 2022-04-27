@@ -15,6 +15,7 @@ import freechips.rocketchip.util._
 import freechips.rocketchip.util.property._
 import freechips.rocketchip.diplomaticobjectmodel.logicaltree.ICacheLogicalTreeNode
 import freechips.rocketchip.pfc._
+import freechips.rocketchip.subsystem.L2SetIdxHash._
 
 
 class FrontendReq(implicit p: Parameters) extends CoreBundle()(p) {
@@ -71,6 +72,7 @@ class FrontendBundle(val outer: Frontend) extends CoreBundle()(outer.p) {
   val cpu = new FrontendIO().flip
   val ptw = new TLBPTWIO()
   val errors = new ICacheErrors
+  val l2_set_idx = new TileL2SetIdxIO()
   val pfcupdate = new Bundle { 
     val setmiss = Flipped(new SetEventPFCRam())
   }
@@ -166,6 +168,11 @@ class FrontendModule(outer: Frontend) extends LazyModuleImp(outer)
   val s2_can_speculatively_refill = s2_tlb_resp.cacheable && !io.ptw.customCSRs.asInstanceOf[RocketCustomCSRs].disableSpeculativeICacheRefill
   icache.io.s2_kill := s2_speculative && !s2_can_speculatively_refill || s2_xcpt
   icache.io.s2_prefetch := s2_tlb_resp.prefetchable && !io.ptw.customCSRs.asInstanceOf[RocketCustomCSRs].disableICachePrefetch
+  io.l2_set_idx.req.valid        := icache.io.l2_set_idx.req.valid
+  io.l2_set_idx.req.bits         := icache.io.l2_set_idx.req.bits
+  icache.io.l2_set_idx.req.ready := io.l2_set_idx.req.ready
+  icache.io.l2_set_idx.revoke    := io.l2_set_idx.revoke
+  icache.io.l2_set_idx.resp      := io.l2_set_idx.resp
 
   fq.io.enq.valid := RegNext(s1_valid) && s2_valid && (icache.io.resp.valid || !s2_tlb_resp.miss && icache.io.s2_kill)
   fq.io.enq.bits.pc := s2_pc

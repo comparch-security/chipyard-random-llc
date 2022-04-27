@@ -12,15 +12,16 @@ import chisel3.util.random.FibonacciLFSR
 import MetaData._
 import freechips.rocketchip.util._
 import freechips.rocketchip.pfc._
+import freechips.rocketchip.subsystem.L2SetIdxHash._
 
 import scala.math.{max, min}
 
 object RTAL
 {
   // locations
-  val SZ = 1
-  def LEFT  = UInt(0,SZ) //left
-  def RIGH  = UInt(1,SZ) //right
+  val SZ = L2RTAL.SZ
+  def LEFT  = L2RTAL.LEFT //left
+  def RIGH  = L2RTAL.RIGH //right
 }
 
 class RandomTableReqIO(val w: Int) extends Bundle {
@@ -32,7 +33,7 @@ class RandomTableBase(params: InclusiveCacheParameters) extends Module
   val io = new Bundle {
     val rst   = Bool().asInput
     val mix   = Valid(UInt(width = params.remap.hkeyw )).asInput
-    val req   = Decoupled(new RandomTableReqIO(params.blkadrBits)).flip //cache block address
+    val req   = Decoupled(new RandomTableReqIO(params.maxblkBits)).flip //cache block address
     val resp  = UInt(width = params.setBits).asOutput
   }
 
@@ -41,7 +42,6 @@ class RandomTableBase(params: InclusiveCacheParameters) extends Module
   val hkeyw      = params.remap.hkeyw
   val hkeyspb    = params.remap.hkeyspb    
   val hkeyspbw   = params.remap.hkeyspbw   //idxw
-  val userspbw   = params.remap.userspbw
   val banksw     = params.remap.banksw
 
   val reqtag     = io.req.bits.blkadr >> setBits
@@ -102,6 +102,7 @@ class RandomTableBase(params: InclusiveCacheParameters) extends Module
 
 class RandomTableBankCmd extends Bundle {
   val rst  = Bool()
+  val send = Bool()
   val loc  = UInt(width = RTAL.SZ)
 }
 
@@ -113,7 +114,7 @@ class RandomTableBankResp(val w: Int) extends Bundle {
 class RandomTableBank(params: InclusiveCacheParameters) extends Module {
   val io = new Bundle {
     val mix     = Valid(UInt(width = params.remap.hkeyw )).asInput
-    val req     = Decoupled(new RandomTableReqIO(params.blkadrBits)).flip //cache block address
+    val req     = Decoupled(new RandomTableReqIO(params.maxblkBits)).flip //cache block address
     val cmd     = Valid(new RandomTableBankCmd).asInput
     val resp    = Valid(new RandomTableBankResp(params.setBits)).asOutput
     val readys  = Bool() //both side are ready
@@ -142,77 +143,119 @@ class RandomTableBank(params: InclusiveCacheParameters) extends Module {
   io.readys             := lrtab.io.req.ready && rrtab.io.req.ready
 }
 
+class RandomTableIO(params: InclusiveCacheParameters) extends InclusiveCacheBundle(params) {
+  val cmd     = Valid(new RandomTableBankCmd).asInput
+  val mix     = Valid(UInt(width = params.setBits)).asInput
+  val req     = Vec(params.remap.channels, Decoupled(new RandomTableReqIO(params.maxblkBits)).flip)  //C(release) X(ie:flush) A(acquire) R(remaper)  channel
+  val resp    = Vec(params.remap.channels, Valid(new RandomTableBankResp(params.setBits)).asOutput)         //C(release) X(ie:flush) A(acquire) R(remaper)  channel
+  val sendRan = Decoupled(new L2SetIdxHashFillRan())
+  val wipeDone  = Bool()
+  val sendDone  = Bool()
+}
+
 class RandomTable(params: InclusiveCacheParameters) extends Module {
 
   val setBits   = params.setBits // l2 setbits
-  val tagBits   = params.tagBits // l2 tagbits
+  val tagBits   = params.tagBits // l2 tagbits 
   val channels  = params.remap.channels
-  val hkeyw     = params.remap.hkeyw
-  val banks     = params.remap.banks
-  val banksw    = params.remap.banksw
-  def bankID(req: RandomTableReqIO): UInt = if(banks == 1)  0.U  else req.blkadr(tagBits+banksw-1, tagBits) ^ req.blkadr(banksw-1, 0)
 
-  val io = new Bundle{
-    val cmd     = Valid(new RandomTableBankCmd).asInput
-    val mix     = Valid(UInt(width = 128)).asInput
-    val req     = Vec(channels, Decoupled(new RandomTableReqIO(params.blkadrBits)).flip)  //C(release) X(ie:flush) A(acquire) R(remaper)  channel
-    val resp    = Vec(channels, Valid(new RandomTableBankResp(setBits)).asOutput)         //C(release) X(ie:flush) A(acquire) R(remaper)  channel
-    val readys  = Bool() //all banks are ready
-  }
+  val io        = new RandomTableIO(params)
+  val sethash   = Module(new L2SetIdxHash(channels))
+  val sendRanQ  = Module(new Queue(io.sendRan.bits.cloneType, 1, pipe = false, flow = false))
+  
+  val cmdloc     = RegEnable(io.cmd.bits.loc, io.cmd.valid && io.cmd.bits.rst)
+  val randoms    = L2SetIdxHashFun.randoms
+  val randomsW   = log2Up(randoms + 1)
+  val wipeCount  = RegInit(UInt(randoms,  width = randomsW))
+  val sendCount  = RegInit(UInt(randoms,  width = randomsW))
+  val delayCount = Reg(Vec(2, UInt(width = 4)))
+  val wipeDone   = wipeCount === randoms.U
+  val sendDone   = sendCount === randoms.U
+  val delayDone  = delayCount.map(_(3))
+  val fillRan    = io.mix.valid && !wipeDone && sendRanQ.io.enq.ready
+  val sendRan    = sendRanQ.io.deq.fire()
+  io.wipeDone    := wipeDone && delayDone(0)
+  io.sendDone    := sendDone && delayDone(1) //delay for waitting tile's l2sethash receive all randoms
 
-  val lfsr      = FibonacciLFSR.maxPeriod(params.remap.hkeyw+1, true.B, seed = Some(3))
-  val reqs      = (0 until channels).map(io.req(_))       //high prio -----> low prio
-  val dsts      = Seq.fill(banks) { Reg(Vec(channels, Bool())) }
-  val resps     = (0 until channels).map(io.resp(_))      //high prio -----> low prio
+  when( io.cmd.valid && io.cmd.bits.rst  ) { wipeCount := 0.U;              delayCount(0) := 0.U }
+  when( io.cmd.valid && io.cmd.bits.send ) { sendCount := 0.U;              delayCount(1) := 0.U }
+  when( fillRan                          ) { wipeCount := wipeCount + 1.U;                       }
+  when( sendRan                          ) { sendCount := sendCount + 1.U                        }
+  when( wipeDone  && !delayDone(0)       ) { delayCount(0) := delayCount(0) + 1.U                }
+  when( sendDone  && !delayDone(1)       ) { delayCount(1) := delayCount(1) + 1.U                }
+ 
+  require(setBits == L2SetIdxHashFun.l2setBits) //How to parametrize?
 
-  val rtabs = Seq.fill(banks) { Module(new RandomTableBank(params)) }
-  val req_arbs     = Seq.fill(banks)    { Module(new Arbiter(new RandomTableReqIO(params.blkadrBits),  channels)) }
-  val resp_arbs    = Seq.fill(channels) { Module(new Arbiter(new RandomTableBankResp(params.setBits),  banks))    }
+  //fillRan
+  sethash.io.fillRan.valid           := fillRan
+  sethash.io.fillRan.bits.loc        := cmdloc
+  sethash.io.fillRan.bits.addr       := wipeCount
+  sethash.io.fillRan.bits.fin        := wipeCount === (randoms - 1).U
+  sethash.io.fillRan.bits.random     := io.mix.bits
 
-  //wiping the rtab with 0s on reset has ultimate priority
-  val rstDone  = RegNext(Cat((0 until banks).map(rtabs(_).io.req.ready)).andR())
-  //val rstDone  = RegNext(rtabs(0).io.req.ready)
-  rtabs.zipWithIndex.map { case(rtab, id) => {
-    val mix = Reg(id.U(params.remap.hkeyw.W))
-    mix := mix + io.mix.bits((id+1)*hkeyw-1, id*hkeyw) + Cat(lfsr(id), (id+1).U)
-    rtab.io.cmd        := io.cmd
-    rtab.io.mix.bits   := mix
-    rtab.io.mix.valid  := io.mix.valid
-  } }
+  //check and send Random
+  sethash.io.checkRan.valid          := !sendDone && sendRanQ.io.enq.ready
+  sethash.io.checkRan.bits.addr      := sendCount(randomsW - 1, 0)
+  sethash.io.checkRan.bits.loc       := cmdloc
+  sethash.io.checkRan.bits.fin       := sendCount(randomsW - 1, 0) === (randoms - 1).U
+  sendRanQ.io.enq                    <> sethash.io.sendRan
+  io.sendRan                         <> sendRanQ.io.deq
+  io.sendRan.bits.random             := sendRanQ.io.deq.bits.random(setBits - 1, 0)
+  //if tile's l2sethash is twins doesn't need check send fill directly
 
-  //req
-  (0 until banks).map( b => {
-    rtabs(b).io.req.bits      := req_arbs(b).io.out.bits
-    rtabs(b).io.req.valid     := req_arbs(b).io.out.valid
-    req_arbs(b).io.out.ready  := rstDone
-    (0 until channels).map( c => {
-      dsts(b)(c) := req_arbs(b).io.in(c).fire()
-      req_arbs(b).io.in(c).bits  := reqs(c).bits
-      req_arbs(b).io.in(c).valid := reqs(c).valid && (bankID(reqs(c).bits) === b.U) 
-      when(bankID(reqs(c).bits) === b.U) { reqs(c).ready := req_arbs(b).io.in(c).ready }
-    })
-  })
-  reqs(0).ready := rstDone //has the hightest priority
-
-  //resp
-  (0 until channels).map( c => {
-    resps(c).bits  := resp_arbs(c).io.out.bits
-    resps(c).valid := RegNext(reqs(c).fire())
-    resp_arbs(c).io.out.ready := true.B
-    (0 until banks).map( b => {
-      resp_arbs(c).io.in(b).bits  := rtabs(b).io.resp.bits
-      resp_arbs(c).io.in(b).valid := rtabs(b).io.resp.valid && dsts(b)(c)
-    })
-  })
-
-  io.readys :=  RegNext(!io.cmd.valid && Cat(rtabs.map { _.io.readys }.reverse).orR())
-
-  //ASSERT
-  reqs zip resps  map { case(req, resp) => {
-    when(resp.valid) { assert(Mux1H(1.U << RegNext(bankID(req.bits)), rtabs.map(_.io.resp.valid))) }
+  (0 until channels).map { ch => {
+    //req
+    sethash.io.req(ch).valid         := io.req(ch).valid
+    sethash.io.req(ch).bits.blkadr   := io.req(ch).bits.blkadr
+    io.req(ch).ready                 := sethash.io.req(ch).ready
+    //resp
+    io.resp(ch).valid                := sethash.io.resp(ch).valid
+    io.resp(ch).bits.lhset           := sethash.io.resp(ch).bits.lhset
+    io.resp(ch).bits.rhset           := sethash.io.resp(ch).bits.rhset
   }}
 
+}
 
+trait HasRandomBroadCaster { this: sifive.blocks.inclusivecache.InclusiveCache =>
+  val (ranbcternode, ranbcterio) = {
+    val nClients = p(freechips.rocketchip.subsystem.RocketTilesKey).length
+    val node = BundleBridgeSource(() => Flipped((new L2RanNetMasterIO().cloneType)))
+    
+    val io  = InModuleBody { node.bundle }
+    (node, io)
+  }
+  def createRandomBroadCaster(schedulers: Seq[Scheduler]) = {
+    val mix           = RegInit(0.U(128.W))
+    val ranGen1       = Reg(UInt(width =     112))
+    val ranGen2       = Reg(UInt(width =      96))
+    val ranGen3       = Reg(UInt(width =      80))
+    val ranGen4       = Reg(UInt(width =      64))
+    val ranGen5       = Reg(UInt(width =      48))
+    val ranGen6       = Reg(UInt(width =      32))
+    val ranGen7       = Reg(UInt(width =      16))
+    val ranFeedBack   = Reg(UInt(width =     128))
+    mix              := mix + RegNext((schedulers.map(_.io.ranMixOut).reduce(_^_) ^ ranFeedBack))
+    ranGen1          := L2SetIdxHashFun.ranGen(mix,         ranGen1.getWidth)
+    ranGen2          := L2SetIdxHashFun.ranGen(ranGen1,     ranGen2.getWidth)
+    ranGen3          := L2SetIdxHashFun.ranGen(ranGen2,     ranGen3.getWidth)
+    ranGen4          := L2SetIdxHashFun.ranGen(ranGen3,     ranGen4.getWidth)
+    ranGen5          := L2SetIdxHashFun.ranGen(ranGen4,     ranGen5.getWidth)
+    ranGen6          := L2SetIdxHashFun.ranGen(ranGen5,     ranGen6.getWidth)
+    ranGen7          := L2SetIdxHashFun.ranGen(ranGen6,     ranGen7.getWidth)
+    ranFeedBack      := Cat(ranGen7, ranGen6, ranGen5, ranGen4(63, 32) ^ ranGen4(31, 0))
+    val sendRanQ      = Module(new Queue(schedulers(0).io.sendRan.bits.cloneType, 1, pipe = false, flow = false))
+    val sendRanArb    = Module(new RRArbiter(schedulers(0).io.sendRan.bits.cloneType, schedulers.length))
+    schedulers zip sendRanArb.io.in map { case(s, arb) => {
+      s.io.ranMixIn       := ranGen5
+      arb.valid           := s.io.sendRan.valid
+      arb.bits            := s.io.sendRan.bits
+      s.io.sendRan.ready  := arb.ready
+      require(s.io.ranMixOut.getWidth == mix.getWidth)
+      require(s.io.ranMixIn.getWidth  <= ranGen5.getWidth)
+    }}
+    sendRanQ.io.enq        <> sendRanArb.io.out
+    ranbcterio.send        <> sendRanQ.io.deq
+  }
 }
 
 class SwaperReq(params: InclusiveCacheParameters) extends InclusiveCacheBundle(params) {
@@ -574,9 +617,10 @@ class Remaper(params: InclusiveCacheParameters) extends Module {
     val status     = new RemaperStatusIO(params)
     //RandomTable
     val rtcmd      = Valid(new RandomTableBankCmd()).asOutput
-    val rtreq      = Decoupled(new RandomTableReqIO(params.blkadrBits))
+    val rtreq      = Decoupled(new RandomTableReqIO(params.maxblkBits))
     val rtresp     = Valid(new RandomTableBankResp(params.setBits)).flip
-    val rtreadys   = Bool().asInput
+    val rtwipeDone = Bool().asInput
+    val rtsendDone = Bool().asInput
     //DirectoryEntrySwaper
     val dereq      = Decoupled(new SwaperReq(params))
     val deresp     = Valid(new SwaperResp(params)).flip
@@ -624,7 +668,7 @@ class Remaper(params: InclusiveCacheParameters) extends Module {
   val p_current    = Reg(new SwaperResp(params))
   val dbswap       = Reg(Valid(new SwaperReq(params)))
   val dbnext       = Reg(Valid(UInt(width = params.setBits)))
-  val finish       = s_finish && !io.schreq
+  val finish       = s_finish && !io.schreq && io.rtsendDone
   val newset       = Mux(loc_next === RTAL.RIGH, io.rtresp.bits.rhset, io.rtresp.bits.lhset)
 
   when(finish) {
@@ -669,12 +713,21 @@ class Remaper(params: InclusiveCacheParameters) extends Module {
 
   //io.rtcmd
   io.rtcmd.valid           := io.deresp.valid && io.deresp.bits.set === lastset.U && io.deresp.bits.nop
-  io.rtcmd.bits.rst        := io.rtcmd.valid
+  io.rtcmd.bits.rst        := true.B
+  io.rtcmd.bits.send       := false.B
   io.rtcmd.bits.loc        := loc_current
+  when(!s_1stpause && (RegNext(s_1stpause))) {
+    io.rtcmd.valid         := true.B
+    io.rtcmd.bits.rst      := false.B
+    io.rtcmd.bits.send     := true.B
+    io.rtcmd.bits.loc      := loc_next
+  }
 
   //rtreq.io.enq
+  val addrRestored          = params.restoreAddress(params.expandAddress(io.deresp.bits.tag(params.blkadrBits-1, params.setBits), io.deresp.bits.tag(params.setBits-1, 0), UInt(0)))
   rtreq.io.enq.valid       := io.deresp.valid && !io.deresp.bits.nop && !io.deresp.bits.tail
-  rtreq.io.enq.bits.blkadr := io.deresp.bits.tag
+  rtreq.io.enq.bits.blkadr := addrRestored >> params.offsetBits
+
   //io.rtreq
   io.rtreq.valid           := rtreq.io.deq.valid
   io.rtreq.bits            := rtreq.io.deq.bits
@@ -758,7 +811,7 @@ class Remaper(params: InclusiveCacheParameters) extends Module {
   when( finish                                                                         ) {   s_idle       := true.B    }
   when( io.req.fire()                                                                  ) {   s_idle       := false.B   }
   when( io.req.fire()                                                                  ) {   s_1stpause   := true.B    }
-  when( s_1stpause && dbreq.io.enq.ready && io.rtreadys && !io.schreq                  ) {   s_1stpause   := false.B   }
+  when( s_1stpause && dbreq.io.enq.ready && io.rtwipeDone && !io.schreq                ) {   s_1stpause   := false.B   }
   when( io.rtresp.valid                                                                ) {   s_newset     := true.B    }
   when( io.definish.valid                                                              ) {   s_newset     := false.B   }
   when( io.deresp.valid && io.deresp.bits.nop                                          ) {   s_swdone     := true.B    }
@@ -766,7 +819,7 @@ class Remaper(params: InclusiveCacheParameters) extends Module {
   //when( dbreq.io.enq.ready && io.dbreq.ready && (w_dir || w_evictdone)                 ) {   s_swdone     := true.B    }
   when( (io.xreq.fire() && io.xreq.bits.opcode === XOPCODE.SWAP) || io.continue.fire() ) {   s_swdone     := false.B   }
   when( finish                                                                         ) {   s_oneloc     := true.B    }
-  when( s_1stpause && dbreq.io.enq.ready && io.rtreadys && !io.schreq                  ) {   s_oneloc     := false.B   }
+  when( s_1stpause && dbreq.io.enq.ready && io.rtwipeDone && !io.schreq                ) {   s_oneloc     := false.B   }
   when( finish                                                                         ) {   s_finish     := false.B   }
   when( io.deresp.valid && io.deresp.bits.set === lastset.U && io.deresp.bits.nop      ) {   s_finish     := true.B    }
 
@@ -776,7 +829,7 @@ class Remaper(params: InclusiveCacheParameters) extends Module {
     w_evictdone  := false.B
   }.otherwise {
     when(!w_dir && xreq.io.enq.ready) {
-      when( s_1stpause && dbreq.io.enq.ready && io.rtreadys && !io.schreq                 ) {  w_dir   := true.B   }  //first swap req
+      when( s_1stpause && dbreq.io.enq.ready && io.rtwipeDone && !io.schreq               ) {  w_dir   := true.B   }  //first swap req
       when( io.deresp.valid ) {
         when( io.deresp.bits.nop && io.deresp.bits.set =/= lastset.U                      ) {  w_dir   := true.B   }  //need do nothing  
         when( !io.deresp.bits.nop && io.deresp.bits.tail && !io.deresp.bits.evict.valid   ) {  w_dir   := true.B   }  //tail but not need evict

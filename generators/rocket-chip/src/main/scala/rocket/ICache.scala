@@ -16,6 +16,7 @@ import chisel3.internal.sourceinfo.SourceInfo
 import chisel3.dontTouch
 import chisel3.util.random.LFSR
 import freechips.rocketchip.pfc._
+import freechips.rocketchip.subsystem.L2SetIdxHash._
 
 
 case class ICacheParams(
@@ -120,6 +121,8 @@ class ICacheBundle(val outer: ICache) extends CoreBundle()(outer.p) {
   val s1_kill = Bool(INPUT) // delayed one cycle w.r.t. req
   val s2_kill = Bool(INPUT) // delayed two cycles; prevents I$ miss emission
   val s2_prefetch = Bool(INPUT) // should I$ prefetch next line on a miss?
+
+  val l2_set_idx = new TileL2SetIdxIO()
 
   val resp = Valid(new ICacheResp(outer))
   val invalidate = Bool(INPUT)
@@ -428,12 +431,21 @@ class ICacheModule(outer: ICache) extends LazyModuleImp(outer)
         ccover(tl_out.d.valid && !tl_out.d.ready, "ITIM_BLOCK_D", "D-channel blocked by ITIM access")
       }
   }
+  
+  //l2_set_idx
+  io.l2_set_idx.req.valid         := s1_valid && !s1_hit && !io.s1_kill && s1_can_request_refill
+  io.l2_set_idx.req.bits.blkadr   := io.s1_paddr >> blockOffBits
+  val l2_set_idx_latch            = Reg(Valid(new L2SetIdxHashResp))
+  val s2_request_refill_rising    = s2_request_refill && RegNext(!s2_request_refill)
+  when( s2_request_refill_rising ) { l2_set_idx_latch := io.l2_set_idx.resp }
+  when( io.l2_set_idx.revoke     ) { l2_set_idx_latch.valid := false.B      }
 
   tl_out.a.valid := s2_request_refill
   tl_out.a.bits := edge_out.Get(
                     fromSource = UInt(0),
                     toAddress = (refill_paddr >> blockOffBits) << blockOffBits,
                     lgSize = lgCacheBlockBytes)._2
+  tl_out.a.bits.setidx := Mux(s2_request_refill_rising, io.l2_set_idx.resp, l2_set_idx_latch)
 
   if (cacheParams.prefetch) {
     val (crosses_page, next_block) = Split(refill_paddr(pgIdxBits-1, blockOffBits) +& 1, pgIdxBits-blockOffBits)

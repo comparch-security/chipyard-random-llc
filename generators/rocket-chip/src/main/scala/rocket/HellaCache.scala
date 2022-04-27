@@ -14,6 +14,7 @@ import freechips.rocketchip.tilelink._
 import freechips.rocketchip.util._
 import scala.collection.mutable.ListBuffer
 import freechips.rocketchip.pfc._
+import freechips.rocketchip.subsystem.L2SetIdxHash._
 
 case class DCacheParams(
     nSets: Int = 64,
@@ -223,6 +224,7 @@ abstract class HellaCache(staticIdForMetadataUseOnly: Int)(implicit p: Parameter
 class HellaCacheBundle(val outer: HellaCache)(implicit p: Parameters) extends CoreBundle()(p) {
   val cpu = (new HellaCacheIO).flip
   val ptw = new TLBPTWIO()
+  val l2_set_idx = new TileL2SetIdxIO()
   val errors = new DCacheErrors
   val pfcupdate = new Bundle { 
     val setmiss = Flipped(new SetEventPFCRam())

@@ -239,7 +239,10 @@ trait DefaultTileContextType
   *   their attachment behaviors, but most use cases should be be handled simply by changing the implementation
   *   of the injectNode functions in crossingParams.
   */
-trait CanAttachTile extends freechips.rocketchip.pfc.CanAttachTiletoPFC {
+trait CanAttachTile
+  extends freechips.rocketchip.pfc.CanAttachTiletoPFC
+  with    freechips.rocketchip.subsystem.L2SetIdxHash.CanAttachTiletoL2RANTable
+  {
   type TileType <: BaseTile
   type TileContextType <: DefaultTileContextType
   def tileParams: InstantiableTileParams[TileType]
@@ -264,6 +267,7 @@ trait CanAttachTile extends freechips.rocketchip.pfc.CanAttachTiletoPFC {
     connectOutputNotifications(domain, context)
     connectInputConstants(domain, context)
     connectPFC(domain, context, tileParams.hartId)
+    connectSalveL2RANTable(domain, context, tileParams.hartId)
     LogicalModuleTree.add(context.logicalTreeNode, domain.tile.logicalTreeNode)
   }
 

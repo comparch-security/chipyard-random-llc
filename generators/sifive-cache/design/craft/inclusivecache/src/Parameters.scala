@@ -129,23 +129,18 @@ case class InclusiveCacheRemapParameters(
   en:      Boolean,
   banks:   Int, //radnom table banks
   hkeys:   Int, //sets
-  hkeyw:   Int,
-  users:   Int)
+  hkeyw:   Int)
 {
   if(en) {
     require(banks > 0 && isPow2(banks))
     require(hkeys > 0)
     require(hkeyw > 0)
-    require(users > 0)
   }
-  val channels = 4
+  val channels = 5
   val hkeysw   = log2Up(hkeys)
-  val usersw   = log2Up(users)
   val banksw   = log2Up(banks)
   val hkeyspb  = hkeys/banks  //hkeys per bank
-  val userspb  = users/banks  //users per bank
   val hkeyspbw = log2Up(hkeyspb) //hkeys per bank bitw
-  val userspbw = log2Up(userspb) //users per bank bitw
 
   val enableRemaperLog         = true
   val enableDirEntrySwaperLog  = false
@@ -196,6 +191,8 @@ case class InclusiveCacheParameters(
 
   val flatAddresses = AddressSet.unify(outer.manager.managers.flatMap(_.address))//.tail
   val pickMask = AddressDecoder(flatAddresses.map(Seq(_)), flatAddresses.map(_.mask).reduce(_|_))
+  val maxAddress = flatAddresses.map(as => as.base + as.mask).max
+  val maxAddressBits = log2Ceil(maxAddress)
 
   def bitOffsets(x: BigInt, offset: Int = 0, tail: List[Int] = List.empty[Int]): List[Int] =
     if (x == 0) tail.reverse else bitOffsets(x >> 1, offset + 1, if ((x & 1) == 1) offset :: tail else tail)
@@ -215,6 +212,7 @@ case class InclusiveCacheParameters(
   val blkadrBits = addressBits - offsetBits
   val tagBits    = addressBits - setBits - offsetBits
   val putBits    = log2Ceil(max(putLists, relLists))
+  val maxblkBits = maxAddressBits - offsetBits
 
   require (tagBits > 0)
   require (offsetBits > 0)

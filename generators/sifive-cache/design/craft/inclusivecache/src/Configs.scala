@@ -61,6 +61,7 @@ class WithInclusiveCache(
     val sbus = context.tlBusWrapperLocationMap(SBUS)
     val cbus = context.tlBusWrapperLocationMap.lift(CBUS).getOrElse(sbus)
     val pfbus = context.asInstanceOf[freechips.rocketchip.pfc.HasPFCnetwork].pfbus
+    val ranbus = context.asInstanceOf[freechips.rocketchip.subsystem.L2SetIdxHash.HasL2RANnetwork].l2ranbus
     val InclusiveCacheParams(
       ways,
       sets,
@@ -90,8 +91,7 @@ class WithInclusiveCache(
        en     = true,
        banks  = 4,
        hkeys  = sets/4,
-       hkeyw  = log2Up(sets) * 7 / 9,
-       users  = sets*ways),
+       hkeyw  = log2Up(sets) * 7 / 9),
       Some(InclusiveCacheControlParameters(
         address = InclusiveCacheParameters.L2ControlAddress,
         beatBytes = cbus.beatBytes))))
@@ -136,6 +136,7 @@ class WithInclusiveCache(
     }
 
     pfbus.manodes(p(freechips.rocketchip.subsystem.RocketTilesKey).length) := l2.pfmanode
+    ranbus.manodes := l2.ranbcternode
 
     ElaborationArtefacts.add("l2.json", l2.module.json)
     (filter.node, lastLevelNode, None)

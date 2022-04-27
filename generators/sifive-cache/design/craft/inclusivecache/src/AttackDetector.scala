@@ -379,15 +379,17 @@ class AttackDetector(params: InclusiveCacheParameters) extends Module
     evLatch(0)       :=   0.U
     evLatch(1)       :=   0.U
   }
-  when(io.remap.fire() || RegNext(io.remap.fire())) {
+  when(io.remap.fire() || !wipeDone) {
     count_access     := 0.U
     count_evicts     := 0.U
     count_period     := 0.U
     max_emaz         := 0.U
     evLatch(0)       := 0.U
     evLatch(1)       := 0.U
-    wipeCount        := 0.U
     state            := s_idle
+  }
+  when(io.remap.fire()) {
+    wipeCount        := 0.U
   }
 
   class evwrite extends Bundle {

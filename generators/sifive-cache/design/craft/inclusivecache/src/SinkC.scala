@@ -63,7 +63,7 @@ class SinkC(params: InclusiveCacheParameters) extends Module
     //for use by rempaer
     val busy     = Bool()
     val rstatus  = new RemaperStatusIO(params).asInput  //Remaper Status
-    val rtab     = new SourceSinkRandomTableIO(params.blkadrBits, params.setBits)
+    val rtab     = new SourceSinkRandomTableIO(params.maxblkBits, params.setBits)
   }
 
   if (params.firstLevel) {
@@ -250,16 +250,14 @@ class NBSinkCReq(params: InclusiveCacheParameters) extends Module //no block rel
     //for use by rempaer
     val busy       = Bool()
     val rstatus    = new RemaperStatusIO(params).asInput  //Remaper Status
-    val rtab       = new SourceSinkRandomTableIO(params.blkadrBits, params.setBits)
+    val rtab       = new SourceSinkRandomTableIO(params.maxblkBits, params.setBits)
   }
 
   val c          =  Reg(new TLBundleC(params.inner.bundle))
-  val rtabreq    =  Module(new Queue(UInt(width = params.blkadrBits),         1, pipe = false, flow = true))
   val hset       =  Seq.fill(2) { Module(new Queue(new Hset(params.setBits),  1, pipe = false, flow = true )) }
   val busy       =  RegInit(false.B)
 
   val (s0tag, s0set, s0offset) = params.parseAddress(io.c.bits.address)
-  val s0blkadr                 = Wire(init = Cat(s0tag, s0set))
   val (s1tag, s1set, s1offset) = params.parseAddress(c.address)
   val s1blkadr                 = Wire(init = Cat(s1tag, s1set))
   val (first, _, _, _)         = params.inner.count(io.c.bits, io.fire)
@@ -274,13 +272,8 @@ class NBSinkCReq(params: InclusiveCacheParameters) extends Module //no block rel
   when( io.req.fire()          )  { busy  := false.B   }
 
   //rtab
-  rtabreq.io.enq.valid         := io.c.fire() && needset
-  rtabreq.io.enq.bits          := s0blkadr
-  io.rtab.req.valid            := rtabreq.io.deq.valid
-  io.rtab.req.bits.blkadr      := rtabreq.io.deq.bits
-  rtabreq.io.deq.ready         := io.rtab.req.ready
   io.rtab.req.valid            := io.c.fire() && needset  //rtab(0).req.io.ready := true.B
-  io.rtab.req.bits.blkadr      := s0blkadr
+  io.rtab.req.bits.blkadr      := io.c.bits.address >> params.offsetBits
 
   //io.rtab.resp  --->  hset
   hset(0).io.enq.valid          := io.rtab.resp.valid

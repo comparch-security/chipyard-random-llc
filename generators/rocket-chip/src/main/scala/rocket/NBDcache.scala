@@ -10,6 +10,7 @@ import freechips.rocketchip.diplomacy._
 import freechips.rocketchip.diplomaticobjectmodel.model.OMSRAM
 import freechips.rocketchip.tilelink._
 import freechips.rocketchip.util._
+import freechips.rocketchip.subsystem.L2SetIdxHash._
 
 trait HasMissInfo extends HasL1HellaCacheParameters {
   val tag_match = Bool()
@@ -141,6 +142,7 @@ class MSHR(id: Int)(implicit edge: TLEdgeOut, p: Parameters) extends L1HellaCach
     val req_sec_val    = Bool(INPUT)
     val req_sec_rdy    = Bool(OUTPUT)
     val req_bits       = new MSHRReqInternal().asInput
+    val l2_set_idx     = new TileL2SetIdxIO()
 
     val idx_match       = Bool(OUTPUT)
     val tag             = Bits(OUTPUT, tagBits)
@@ -166,6 +168,12 @@ class MSHR(id: Int)(implicit edge: TLEdgeOut, p: Parameters) extends L1HellaCach
   val req_tag = req.addr >> untagBits
   val req_block_addr = (req.addr >> blockOffBits) << blockOffBits
   val idx_match = req_idx === io.req_bits.addr(untagBits-1,blockOffBits)
+
+  val l2_set_idx_latch = Reg(Valid(new L2SetIdxHashResp))
+  val l2_set_idx_resp_valid = io.l2_set_idx.resp.valid && RegNext(io.req_pri_val && io.req_pri_rdy)
+  val l2_set_idx = Mux(l2_set_idx_resp_valid, io.l2_set_idx.resp, l2_set_idx_latch)
+  when( l2_set_idx_resp_valid  ) { l2_set_idx_latch := io.l2_set_idx.resp }
+  when( io.l2_set_idx.revoke   ) { l2_set_idx_latch.valid := false.B      }
 
   val new_coh = Reg(init=ClientMetadata.onReset)
   val (_, shrink_param, coh_on_clear)    = req.old_meta.coh.onCacheControl(M_FLUSH)
@@ -233,6 +241,7 @@ class MSHR(id: Int)(implicit edge: TLEdgeOut, p: Parameters) extends L1HellaCach
   when (io.req_pri_val && io.req_pri_rdy) {
     req := io.req_bits
     acked := false
+    l2_set_idx_latch.valid := false.B
     val old_coh = io.req_bits.old_meta.coh
     val needs_wb = old_coh.onCacheControl(M_FLUSH)._1
     val (is_hit, _, coh_on_hit) = old_coh.onAccess(io.req_bits.cmd)
@@ -291,6 +300,7 @@ class MSHR(id: Int)(implicit edge: TLEdgeOut, p: Parameters) extends L1HellaCach
                                 toAddress = Cat(io.tag, req_idx) << blockOffBits,
                                 lgSize = lgCacheBlockBytes,
                                 growPermissions = grow_param)._2
+  io.mem_acquire.bits.setidx := l2_set_idx
 
   io.meta_read.valid := state === s_drain_rpq
   io.meta_read.bits.idx := req_idx
@@ -312,6 +322,7 @@ class MSHRFile(implicit edge: TLEdgeOut, p: Parameters) extends L1HellaCacheModu
     val req = Decoupled(new MSHRReq).flip
     val resp = Decoupled(new HellaCacheResp)
     val secondary_miss = Bool(OUTPUT)
+    val l2_set_idx     = new TileL2SetIdxIO()
 
     val mem_acquire  = Decoupled(new TLBundleA(edge.bundle))
     val mem_grant = Valid(new TLBundleD(edge.bundle)).flip
@@ -390,11 +401,15 @@ class MSHRFile(implicit edge: TLEdgeOut, p: Parameters) extends L1HellaCacheModu
     when (!mshr.io.req_pri_rdy) { io.fence_rdy := false }
     when (!mshr.io.probe_rdy) { io.probe_rdy := false }
 
+    mshr.io.l2_set_idx.revoke   := io.l2_set_idx.revoke
+    mshr.io.l2_set_idx.resp     := io.l2_set_idx.resp
+
     mshr
   }
 
-
   alloc_arb.io.out.ready := io.req.valid && sdq_rdy && cacheable && !idx_match
+  io.l2_set_idx.req.valid        := alloc_arb.io.out.ready
+  io.l2_set_idx.req.bits.blkadr  := io.req.bits.addr >> blockOffBits
 
   io.meta_read <> meta_read_arb.io.out
   io.meta_write <> meta_write_arb.io.out
@@ -911,6 +926,9 @@ class NonBlockingDCacheModule(outer: NonBlockingDCache) extends HellaCacheModule
   when (mshrs.io.req.fire()) { replacer.miss }
   tl_out.a <> mshrs.io.mem_acquire
   mshrs.io.rel_beats := wb.io.rel_beats
+  io.l2_set_idx.req             := mshrs.io.l2_set_idx.req
+  mshrs.io.l2_set_idx.resp      := io.l2_set_idx.resp
+  mshrs.io.l2_set_idx.revoke    := io.l2_set_idx.revoke
 
   // replays
   readArb.io.in(1).valid := mshrs.io.replay.valid

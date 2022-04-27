@@ -384,6 +384,9 @@ object TLMergedBundle {
     a.source  := chan.source
     a.address := chan.address
     a.data    := chan.data
+    a.setidx.valid  := false.B
+    a.setidx.bits.lhset  := 0.U
+    a.setidx.bits.rhset  := 0.U
     if(hasCorruptDenied)
       a.corrupt := chan.corrupt.get
     else

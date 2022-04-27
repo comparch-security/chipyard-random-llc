@@ -74,6 +74,7 @@ abstract class BaseSubsystem(val location: HierarchicalLocation = InSubsystem)
   extends BareSubsystem
   with Attachable
   with freechips.rocketchip.pfc.HasPFCnetwork
+  with freechips.rocketchip.subsystem.L2SetIdxHash.HasL2RANnetwork
   with HasConfigurablePRCILocations
   with HasConfigurableTLNetworkTopology
 {

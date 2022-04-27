@@ -22,6 +22,7 @@ import freechips.rocketchip.diplomacy.AddressSet
 import freechips.rocketchip.tilelink._
 import freechips.rocketchip.util._
 import freechips.rocketchip.pfc._
+import freechips.rocketchip.subsystem.L2SetIdxHash._
 
 class Scheduler(params: InclusiveCacheParameters) extends Module
     with HasSchedulerPFC
@@ -35,6 +36,10 @@ class Scheduler(params: InclusiveCacheParameters) extends Module
     // Control port
     val req = Decoupled(new SinkXRequest(params)).flip
     val resp = Decoupled(new SourceXRequest(params))
+    // SetIdxRan
+    val sendRan   = Decoupled(new L2SetIdxHashFillRan())
+    val ranMixOut = UInt(width = 128).asOutput
+    val ranMixIn  = UInt(width = params.setBits).asInput
     //config
     val config = new Bundle {
       val remaper       = new RemaperConfig().asInput
@@ -402,27 +407,35 @@ class Scheduler(params: InclusiveCacheParameters) extends Module
     sinkC.io.rstatus    := remaper.io.status
     fsinkX.io.rstatus   := remaper.io.status
     fsinkA.io.rstatus   := remaper.io.status
+    fsinkA.io.rtsendDone  := randomtable.io.sendDone
     mshrs.map { case m => m.io.rstatus := remaper.io.status }
 
     //randomtable
     import chisel3.util.random.FibonacciLFSR
-    val lfsr  = FibonacciLFSR.maxPeriod(64, true.B, seed = Some(11))
+    val lfsr  = FibonacciLFSR.maxPeriod(128, true.B, seed = Some(123456789))
     val mix_c = Reg(io.in.c.bits.data.cloneType)
     val mix_d = Reg(io.in.d.bits.data.cloneType)
-    mix_c := Mux(io.in.c.valid || io.out.c.valid, mix_c + (io.in.c.bits.data ^ io.out.c.bits.data), Cat(mix_d(0), mix_c(63, 1))) ^ lfsr
-    mix_d := Mux(io.in.d.valid || io.out.d.valid, mix_d + (io.in.d.bits.data ^ io.out.d.bits.data), Cat(mix_c(0), mix_d(63, 1))) ^ lfsr
-    when(reset || !directory.io.ready) {
-      mix_c := 0.U
-      mix_d := 0.U
+    mix_c := Mux(io.in.c.valid || io.out.c.valid, mix_c + (io.in.c.bits.data ^ io.out.c.bits.data), mix_c - mix_d) + lfsr(63,   0)
+    mix_d := Mux(io.in.d.valid || io.out.d.valid, mix_d + (io.in.d.bits.data ^ io.out.d.bits.data), mix_c + mix_d) + lfsr(127, 64)
+    when(reset) {
+      mix_c := "h0123456789abcdef".U
+      mix_d := "hfedcba9876543210".U
     }
-    remaper.io.rtreadys       := randomtable.io.readys
-    randomtable.io.cmd        := remaper.io.rtcmd
-    randomtable.io.mix.bits   := Cat(mix_c, mix_d)
-    randomtable.io.mix.valid  := io.in.c.valid || io.out.c.valid || io.in.d.valid || io.out.d.valid || !directory.io.ready
+    io.ranMixOut := Cat(mix_c, mix_d)
+    remaper.io.rtwipeDone       := randomtable.io.wipeDone
+    remaper.io.rtsendDone       := randomtable.io.sendDone
+    randomtable.io.cmd          := remaper.io.rtcmd
+    randomtable.io.mix.bits     := io.ranMixIn
+    randomtable.io.mix.valid    := RegNext(io.pfcupdate.itlink.a_Done)
     randomtable.io.req(0) <>  sinkC.io.rtab.req    ;  sinkC.io.rtab.resp   := randomtable.io.resp(0) ;                                      //sinkC   -->  randomtable  --> sinkC
     randomtable.io.req(1) <> fsinkA.io.rtab.req    ; fsinkA.io.rtab.resp   := randomtable.io.resp(1) ; sinkA.io.hset(0) <> fsinkA.io.hset(0) ; sinkA.io.hset(1) <> fsinkA.io.hset(1) //fsinkA  -->  randomtable  --> sinkA
     randomtable.io.req(2) <> fsinkX.io.rtab.req    ; fsinkX.io.rtab.resp   := randomtable.io.resp(2) ; sinkX.io.hset(0) <> fsinkX.io.hset(0) ; sinkX.io.hset(1) <> fsinkX.io.hset(1) //fsinkX  -->  randomtable  --> sinkX
     randomtable.io.req(3) <> remaper.io.rtreq      ; remaper.io.rtresp     := randomtable.io.resp(3) ;
+    randomtable.io.req(4) <> fsinkA.io.ranchk.req  ; fsinkA.io.ranchk.resp := randomtable.io.resp(4) ;
+    io.sendRan.valid              := randomtable.io.sendRan.valid
+    io.sendRan.valid              := randomtable.io.sendRan.valid
+    io.sendRan.bits               := randomtable.io.sendRan.bits
+    randomtable.io.sendRan.ready  := io.sendRan.ready
 
     //rereq
     val rereq_arb = Module(new Arbiter(mshrs(0).io.schedule.bits.rereq.bits.cloneType, params.mshrs))
@@ -480,8 +493,8 @@ class Scheduler(params: InclusiveCacheParameters) extends Module
 
     //attack detector
     remaper.io.req.bits               := attackdetector.io.remap.bits
-    remaper.io.req.valid              := attackdetector.io.remap.valid && randomtable.io.readys
-    attackdetector.io.remap.ready     := remaper.io.req.ready          && randomtable.io.readys
+    remaper.io.req.valid              := attackdetector.io.remap.valid && randomtable.io.wipeDone
+    attackdetector.io.remap.ready     := remaper.io.req.ready          && randomtable.io.wipeDone
     attackdetector.io.config0         := io.config.atdetconf0
     attackdetector.io.config1         := io.config.atdetconf1
     attackdetector.io.access.valid    := io.pfcupdate.itlink.a_Done    && remaper.io.req.ready

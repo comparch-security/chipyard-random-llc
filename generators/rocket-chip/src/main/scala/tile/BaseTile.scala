@@ -173,6 +173,7 @@ abstract class BaseTile private (val crossing: ClockCrossingType, q: Parameters)
     with HasNonDiplomaticTileParameters
     with HasLogicalTreeNode
     with freechips.rocketchip.pfc.HasTilePFCNode
+    with freechips.rocketchip.subsystem.L2SetIdxHash.HasL2RANTableSlaveNode
 {
   // Public constructor alters Parameters to supply some legacy compatibility keys
   def this(tileParams: TileParams, crossing: ClockCrossingType, lookup: LookupByHartIdImpl, p: Parameters) = {
