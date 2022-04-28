@@ -835,6 +835,8 @@ class NonBlockingDCacheModule(outer: NonBlockingDCache) extends HellaCacheModule
   def wayMap[T <: Data](f: Int => T) = Vec((0 until nWays).map(f))
   val s1_tag_eq_way = wayMap((w: Int) => meta.io.resp(w).tag === (s1_addr >> untagBits)).asUInt
   val s1_tag_match_way = wayMap((w: Int) => s1_tag_eq_way(w) && meta.io.resp(w).coh.isValid()).asUInt
+  val s1_empty_ways    = wayMap((w: Int) => !meta.io.resp(w).coh.isValid()).asUInt
+  val s1_empty_way     = (~(leftOR(s1_empty_ways) << 1) & s1_empty_ways)(nWays - 1, 0)
   s1_clk_en := metaReadArb.io.out.valid //TODO: should be metaReadArb.io.out.fire(), but triggers Verilog backend bug
   val s1_writeback = s1_clk_en && !s1_valid && !s1_replay
   val s2_data_sel = RegNext(Mux(s1_wb_way_en === 0.U, s1_tag_match_way, s1_wb_way_en))
@@ -906,7 +908,7 @@ class NonBlockingDCacheModule(outer: NonBlockingDCache) extends HellaCacheModule
   val s1_repl_state      = Wire(UInt(width = replacer.nBits))
   val s2_repl_state      = Reg(UInt(width = replacer.nBits))
   val s2_repl_state_new  = replacer.get_next_state(s2_repl_state, s2_tag_match_way_UInt)
-  val s1_replaced_way_en = UIntToOH(replacer.get_replace_way(s1_repl_state))
+  val s1_replaced_way_en = Mux(s1_empty_ways === 0.U, UIntToOH(replacer.get_replace_way(s1_repl_state)), s1_empty_way)
   val s2_replaced_way_en = RegEnable(s1_replaced_way_en, s1_clk_en)
   val s2_repl_meta       = Mux1H(s2_replaced_way_en, wayMap((w: Int) => RegEnable(meta.io.resp(w), s1_clk_en)).toSeq)
   s1_repl_state         := repl_state_vec(s1_repl_set)

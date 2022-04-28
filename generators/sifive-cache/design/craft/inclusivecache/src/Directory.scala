@@ -159,6 +159,8 @@ class Directory(params: InclusiveCacheParameters) extends Module
   val set = params.dirReg(RegEnable(io.read.bits.set, ren), ren1)
 
   // Compute the victim way in case of an evicition
+  val empty     = Wire(Bool())
+  val empWay    = Wire(UInt(width = params.wayBits))
   class replacerUpdate extends Bundle {
     val set    = UInt(width = params.setBits)
     val state  = UInt(width = replacer.nBits)
@@ -179,7 +181,7 @@ class Directory(params: InclusiveCacheParameters) extends Module
   val victimSums = Seq.tabulate(params.cache.ways) { i => UInt((1 << InclusiveCacheParameters.lfsrBits)*i / params.cache.ways) }
   val victimLTE  = Cat(victimSums.map { _ <= victimLFSR }.reverse)
   val victimSimp = Cat(UInt(0, width=1), victimLTE(params.cache.ways-1, 1), UInt(1, width=1))
-  val victimWay  = params.dirReg(replacer.get_replace_way(s1_repl_state), ren1)
+  val victimWay  = Mux(empty, empWay, params.dirReg(replacer.get_replace_way(s1_repl_state), ren1))
   val victimWayOH = UIntToOH(victimWay)
   replUpdQue.io.enq.valid       := s2_repl_update && !io.result.bits.swz
   replUpdQue.io.enq.bits.set    := set
@@ -202,6 +204,11 @@ class Directory(params: InclusiveCacheParameters) extends Module
     w.tag === tag && w.state =/= INVALID && (!setQuash || UInt(i) =/= bypass.way) && (!invBlock || UInt(i) =/= swaper.io.invblk.bits.way)
   }.reverse)
   val hit = hits.orR()
+  val emptys = Cat(ways.zipWithIndex.map { case (w, i) =>
+    w.state === INVALID && (!setQuash || UInt(i) =/= bypass.way) && (!invBlock || UInt(i) =/= swaper.io.invblk.bits.way)
+  }.reverse)
+  empty  := emptys.orR()
+  empWay := OHToUInt((~(leftOR(emptys) << 1) & emptys)(params.cache.ways - 1, 0))
 
   io.result.valid := ren2
   io.result.bits := Mux(hit, Mux1H(hits, ways), Mux(setQuash && (tagMatch || wayMatch), bypass.data, Mux1H(victimWayOH, ways)))

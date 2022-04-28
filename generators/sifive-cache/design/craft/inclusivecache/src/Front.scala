@@ -224,44 +224,47 @@ class FSink[T <: Data](val gen: T, params: InclusiveCacheParameters) extends Mod
   val back           =                Module(new Queue(io.front.bits.cloneType,   1, pipe = false, flow = true ))
   val hset           =  Seq.fill(2) { Module(new Queue(new Hset(params.setBits),  1, pipe = false, flow = true )) }
   val address        =  Wire(UInt())
-  val hsetknown      =  Wire(Valid(UInt(width = params.setBits)))
+  val hsetknowns     =  Wire(Valid(new RandomTableBankResp(params.setBits)))
   io.front.bits match {
     case a: TLBundleA    => {
-      address := a.address 
-      hsetknown.valid := a.setidx.valid && io.rstatus.oneloc
-      hsetknown.bits  := a.setidx.bits.lhset(params.setBits - 1, 0)
+      address                   := a.address
+      hsetknowns.valid          := a.setidx.valid
+      hsetknowns.bits.lhset     := a.setidx.bits.lhset(params.setBits - 1, 0)
+      hsetknowns.bits.rhset     := a.setidx.bits.rhset(params.setBits - 1, 0)
+      if(!L2SetIdxHashFun.twinsInTile) {
+        hsetknowns.valid        := a.setidx.valid && io.rstatus.oneloc
+        hsetknowns.bits.rhset   := a.setidx.bits.lhset(params.setBits - 1, 0)
+      }
     }
     case x: SinkXRequest => {
       address := x.address
-      hsetknown.valid := false.B
+      hsetknowns.valid := false.B
     }
     case _               =>     require(false)  
   }
-
+  val lhset          = Mux(hsetknowns.valid, hsetknowns.bits.lhset, io.rtab.resp.bits.lhset)
+  val rhset          = Mux(hsetknowns.valid, hsetknowns.bits.rhset, io.rtab.resp.bits.rhset)
   val stall          = RegInit(false.B)
-  val swapped        = Wire(init = ((io.rstatus.cloc === RTAL.LEFT && io.rtab.resp.bits.lhset < io.rstatus.head) ||
-                                    (io.rstatus.cloc === RTAL.RIGH && io.rtab.resp.bits.rhset < io.rstatus.head) ||
-                                    (io.rtab.resp.bits.lhset === io.rtab.resp.bits.rhset                       ) ))
+  val swapped        = Wire(init = ((io.rstatus.cloc === RTAL.LEFT && lhset < io.rstatus.head) ||
+                                    (io.rstatus.cloc === RTAL.RIGH && rhset < io.rstatus.head) ||
+                                    (lhset           === rhset                               ) ))
 
   //io.front      --->  io.rtab.req
-  io.rtab.req.valid             := io.front.valid && !stall && !hsetknown.valid
+  io.rtab.req.valid             := io.front.valid && !stall && !hsetknowns.valid
   io.rtab.req.bits.blkadr       := address >> params.offsetBits
 
   //io.rtab.resp  --->  hset
-  hset(0).io.enq.valid          := io.rtab.resp.valid || io.front.valid && !stall && hsetknown.valid
-  hset(0).io.enq.bits.set       := Mux(Mux(!io.rstatus.oneloc && swapped, io.rstatus.nloc === RTAL.LEFT, io.rstatus.cloc === RTAL.LEFT), io.rtab.resp.bits.lhset, io.rtab.resp.bits.rhset)
-  hset(0).io.enq.bits.loc       := Mux(Mux(!io.rstatus.oneloc && swapped, io.rstatus.nloc === RTAL.LEFT, io.rstatus.cloc === RTAL.LEFT),              RTAL.LEFT,                RTAL.RIGH)
-  hset(1).io.enq.valid          := io.rtab.resp.valid && !io.rstatus.oneloc && !swapped
-  hset(1).io.enq.bits.set       := Mux(io.rstatus.nloc === RTAL.LEFT, io.rtab.resp.bits.lhset, io.rtab.resp.bits.rhset)
-  hset(1).io.enq.bits.loc       := Mux(io.rstatus.nloc === RTAL.LEFT,               RTAL.LEFT,               RTAL.RIGH)
-  when(io.front.valid && !stall && hsetknown.valid) {
-    hset(0).io.enq.bits.set     := hsetknown.bits
-  }
+  hset(0).io.enq.valid          := io.rtab.resp.valid || io.front.valid && !stall && hsetknowns.valid
+  hset(0).io.enq.bits.set       := Mux(Mux(!io.rstatus.oneloc && swapped, io.rstatus.nloc === RTAL.LEFT, io.rstatus.cloc === RTAL.LEFT),     lhset,      rhset)
+  hset(0).io.enq.bits.loc       := Mux(Mux(!io.rstatus.oneloc && swapped, io.rstatus.nloc === RTAL.LEFT, io.rstatus.cloc === RTAL.LEFT), RTAL.LEFT,  RTAL.RIGH)
+  hset(1).io.enq.valid          := hset(0).io.enq.valid && !io.rstatus.oneloc && !swapped
+  hset(1).io.enq.bits.set       := Mux(io.rstatus.nloc === RTAL.LEFT,     lhset,      rhset)
+  hset(1).io.enq.bits.loc       := Mux(io.rstatus.nloc === RTAL.LEFT, RTAL.LEFT,  RTAL.RIGH)
 
   //io.front      --->  back
-  back.io.enq.valid             :=  io.rtab.resp.valid || (io.front.valid && !stall && hsetknown.valid)
+  back.io.enq.valid             :=  io.rtab.resp.valid || (io.front.valid && !stall && hsetknowns.valid)
   back.io.enq.bits              :=  io.front.bits
-  io.front.ready                :=  io.rtab.resp.valid || (!stall && hsetknown.valid)
+  io.front.ready                :=  io.rtab.resp.valid || (!stall && hsetknowns.valid)
   back.io.enq.bits match {
     case a: TLBundleA    => { a.setidx := Valid(new L2SetIdxHashResp()).fromBits(0.U) }
     case _               => { }
@@ -288,15 +291,26 @@ class FSink[T <: Data](val gen: T, params: InclusiveCacheParameters) extends Mod
     case a: TLBundleA    =>  a.setidx.valid && io.rtsendDone
     case _               =>    false.B
   }
-  val ranchk_rstatus   = RegEnable(io.rstatus,      io.ranchk.req.fire())
-  val ranchk_hsetknown = RegEnable(hsetknown.bits,  io.ranchk.req.fire())
-  val ranchk_result    = Mux(ranchk_rstatus.oneloc, Mux(ranchk_rstatus.cloc === RTAL.LEFT, io.ranchk.resp.bits.lhset, io.ranchk.resp.bits.rhset),
-                                                    Mux(ranchk_rstatus.nloc === RTAL.LEFT, io.ranchk.resp.bits.lhset, io.ranchk.resp.bits.rhset))
+  val ranchk_rstatus     = RegEnable(io.rstatus,       io.ranchk.req.fire())
+  val ranchk_hsetknowns  = RegEnable(hsetknowns.bits,  io.ranchk.req.fire())
+  val ranchk_result      = Mux(ranchk_rstatus.oneloc, Mux(ranchk_rstatus.cloc === RTAL.LEFT, io.ranchk.resp.bits.lhset, io.ranchk.resp.bits.rhset),
+                                                      Mux(ranchk_rstatus.nloc === RTAL.LEFT, io.ranchk.resp.bits.lhset, io.ranchk.resp.bits.rhset))
   io.ranchk.req.valid             := io.front.fire() && ranchk 
   io.ranchk.req.bits.blkadr       := address >> params.offsetBits
   when(io.ranchk.resp.valid) {
-    assert(ranchk_hsetknown === ranchk_result,
-           "x_%x =/= x_%x, oneloc %d, cloc %d, nloc %d",
-           ranchk_hsetknown, ranchk_result, ranchk_rstatus.oneloc, ranchk_rstatus.cloc, ranchk_rstatus.nloc)
+    if(L2SetIdxHashFun.twinsInTile) {
+      val hset_match =  ranchk_hsetknowns.lhset === io.ranchk.resp.bits.lhset &&
+                        ranchk_hsetknowns.rhset === io.ranchk.resp.bits.rhset
+      assert(hset_match || !io.rtsendDone,
+             "l: x_%x =/= x_%x, r: x_%x =/= x_%x, oneloc %d, cloc %d, nloc %d",
+             ranchk_hsetknowns.lhset, io.ranchk.resp.bits.lhset,
+             ranchk_hsetknowns.rhset, io.ranchk.resp.bits.rhset,
+             ranchk_rstatus.oneloc,   ranchk_rstatus.cloc,       ranchk_rstatus.nloc)
+    } else {
+      assert(ranchk_hsetknowns.lhset === ranchk_result,
+             "x_%x =/= x_%x, oneloc %d, cloc %d, nloc %d",
+             ranchk_hsetknowns.lhset, ranchk_result,
+             ranchk_rstatus.oneloc,   ranchk_rstatus.cloc,       ranchk_rstatus.nloc)
+    }
   }
 }

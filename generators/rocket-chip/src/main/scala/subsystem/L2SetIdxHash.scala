@@ -17,8 +17,9 @@ object L2RTAL
 }
 
 object L2SetIdxHashFun { //How to parametrize ?
-  val blkBits   = 32 - 6
-  val l2setBits = 10
+  val twinsInTile        = true
+  val blkBits            = 32 - 6
+  val l2setBits          = 10
   val usel2setBitsIdxRan = false
   val blkBitsUsedIdxRan  = if(usel2setBitsIdxRan) blkBits else blkBits - l2setBits
   val firIdxBit          = if(usel2setBitsIdxRan)       0 else l2setBits
@@ -110,6 +111,7 @@ class L2SetIdxHash(val channels: Int, val twins: Boolean = true) extends Module
   io.checkRan.ready        := !io.sendRan.valid && io.sendRan.ready
 
   //fill
+  revoke := io.fillRan.valid && io.fillRan.bits.fin
   if(!twins) { when(io.fillRan.valid) { revoke  := !io.fillRan.bits.fin } }
   (0 until randoms).map { i => {
   	when(reset) {
@@ -192,7 +194,7 @@ trait CanAttachTiletoL2RANTable { this:  freechips.rocketchip.subsystem.CanAttac
 }
 
 trait HasSlaveL2RANTable { this: freechips.rocketchip.tile.RocketTileModuleImp =>
-  val slav_l2setidx = Module(new L2SetIdxHash(2, twins = false))
+  val slav_l2setidx = Module(new L2SetIdxHash(2, twins = L2SetIdxHashFun.twinsInTile))
   def connectSalveL2RANTable = {
     slav_l2setidx.io.fillRan.valid := outer.l2ransl.rece.valid
     slav_l2setidx.io.fillRan.bits  := outer.l2ransl.rece.bits

@@ -177,12 +177,12 @@ class RandomTable(params: InclusiveCacheParameters) extends Module {
   io.wipeDone    := wipeDone && delayDone(0)
   io.sendDone    := sendDone && delayDone(1) //delay for waitting tile's l2sethash receive all randoms
 
-  when( io.cmd.valid && io.cmd.bits.rst  ) { wipeCount := 0.U;              delayCount(0) := 0.U }
-  when( io.cmd.valid && io.cmd.bits.send ) { sendCount := 0.U;              delayCount(1) := 0.U }
-  when( fillRan                          ) { wipeCount := wipeCount + 1.U;                       }
-  when( sendRan                          ) { sendCount := sendCount + 1.U                        }
-  when( wipeDone  && !delayDone(0)       ) { delayCount(0) := delayCount(0) + 1.U                }
-  when( sendDone  && !delayDone(1)       ) { delayCount(1) := delayCount(1) + 1.U                }
+  when( io.cmd.valid && io.cmd.bits.rst                     ) { wipeCount := 0.U;              delayCount(0) := 0.U }
+  when( io.cmd.valid && io.cmd.bits.send                    ) { sendCount := 0.U;              delayCount(1) := 0.U }
+  when( fillRan                                             ) { wipeCount := wipeCount + 1.U;                       }
+  when( sendRan                                             ) { sendCount := sendCount + 1.U                        }
+  when( wipeDone  && !delayDone(0) && sendRanQ.io.enq.ready ) { delayCount(0) := delayCount(0) + 1.U                }
+  when( sendDone  && !delayDone(1) && sendRanQ.io.enq.ready ) { delayCount(1) := delayCount(1) + 1.U                }
  
   require(setBits == L2SetIdxHashFun.l2setBits) //How to parametrize?
 
@@ -201,7 +201,13 @@ class RandomTable(params: InclusiveCacheParameters) extends Module {
   sendRanQ.io.enq                    <> sethash.io.sendRan
   io.sendRan                         <> sendRanQ.io.deq
   io.sendRan.bits.random             := sendRanQ.io.deq.bits.random(setBits - 1, 0)
-  //if tile's l2sethash is twins doesn't need check send fill directly
+  //if tile's l2sethash is twins doesn't need check we can send fill directly
+  if(L2SetIdxHashFun.twinsInTile) {
+    io.sendDone                      := io.wipeDone
+    sethash.io.checkRan.valid        := false.B
+    sendRanQ.io.enq.valid            := sethash.io.fillRan.valid
+    sendRanQ.io.enq.bits             := sethash.io.fillRan.bits
+  }
 
   (0 until channels).map { ch => {
     //req
@@ -668,7 +674,7 @@ class Remaper(params: InclusiveCacheParameters) extends Module {
   val p_current    = Reg(new SwaperResp(params))
   val dbswap       = Reg(Valid(new SwaperReq(params)))
   val dbnext       = Reg(Valid(UInt(width = params.setBits)))
-  val finish       = s_finish && !io.schreq && io.rtsendDone
+  val finish       = s_finish && !io.schreq && (io.rtsendDone || L2SetIdxHashFun.twinsInTile.B)
   val newset       = Mux(loc_next === RTAL.RIGH, io.rtresp.bits.rhset, io.rtresp.bits.lhset)
 
   when(finish) {
