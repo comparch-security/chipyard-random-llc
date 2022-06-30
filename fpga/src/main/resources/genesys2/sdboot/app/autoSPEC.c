@@ -1,3 +1,4 @@
+#define _GNU_SOURCE
 #include "pfc.h"
 #include "platform.h"
 #include <stdio.h>
@@ -6,6 +7,8 @@
 #include <signal.h>
 #include <fcntl.h>
 #include <sys/mman.h>
+#include <pthread.h>
+#include <sched.h>
 
 #define   CORES           1
 #define   CPFCPAGES       1                  // only 1 pfcpage / core
@@ -112,6 +115,21 @@ uint64_t main (int argc, char *argv[])
   uint8_t      end   = atoi(argv[2]);
   uint8_t      time  = atoi(argv[3]);
   uint64_t     inst  = ((uint64_t)atoi(argv[4]))*1000*1000*1000;
+  cpu_set_t mask[2];
+  cpu_set_t get[2];
+  CPU_ZERO(&(mask[0]));
+  CPU_SET(0, &(mask[0]));
+  printf("\n");
+  if(sched_setaffinity(0, sizeof(mask[0]), &(mask[0])) < 0) {
+    printf("main_thread: set thread affinity failed\n");
+  }
+  CPU_ZERO((&get[0]));
+  if(sched_getaffinity(0, sizeof(get[0]), &(get[0])) < 0) {
+    printf("main_thread: get thread affinity failed\n");
+  }
+  if(!CPU_ISSET(0, &(get[0]))) {
+    printf("main_thread is not running in processor %d\n", 0);
+  }
   char* pfcfile = argv[5];
   if(start < 1  ) {  start =1;   }
   if(end   < 1  ) {  end   =1;   }
@@ -183,6 +201,18 @@ uint64_t main (int argc, char *argv[])
     if(sel==41) sel=42;   //41: 433.zeusmp
      pid = fork();
      if(pid==0) { //child
+       CPU_ZERO(&(mask[1]));
+       CPU_SET(0, &(mask[1]));
+       if(sched_setaffinity(0, sizeof(mask[1]), &(mask[1])) < 0) {
+         printf("spec2006_thread: set thread affinity failed\n");
+       }
+       CPU_ZERO(&(get[1]));
+       if(sched_getaffinity(0, sizeof(get[1]), &(get[1])) < 0) {
+         printf("spec2006_thread: get thread affinity failed\n");
+       }
+       if(!CPU_ISSET(0, &(get[1]))) {
+         printf("spec2006_thread is not running in processor %d\n", 0);
+       }
        chdir("/mnt/riscv-spec-ref");
        //INT
        if(sel <=  3)      { chdir("./400.perlbench");   }
@@ -222,6 +252,13 @@ uint64_t main (int argc, char *argv[])
        execlp("/bin/sh", "sh", "-c", speccmd[sel], NULL);
      } else {
        if(sel) {
+         CPU_ZERO((&get[0]));
+         if(sched_getaffinity(pthread_self(), sizeof(get[0]), &(get[0])) < 0) {
+           printf("main_thread: get thread affinity failed\n");
+         }
+         if(!CPU_ISSET(0, &(get[0]))) {
+           printf("main_thread %ld is not running in processor %d\n", pthread_self(), 0);
+         }
          uint64_t e_inst;  //end_instructions
          uint64_t n_inst;  //now_instructions
          uint8_t run_time=time;

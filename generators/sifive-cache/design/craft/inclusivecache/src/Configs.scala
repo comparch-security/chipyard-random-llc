@@ -48,7 +48,7 @@ class WithInclusiveCache(
   nWays: Int = 16,
   capacityKB: Int = 1024,
   outerLatencyCycles: Int = 40,
-  subBankingFactor: Int = 4
+  subBankingFactor: Int = 8
 ) extends Config((site, here, up) => {
   case InclusiveCacheKey => InclusiveCacheParams(
       sets = (capacityKB * 1024)/(site(CacheBlockBytes) * nWays * nBanks),

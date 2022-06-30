@@ -39,7 +39,7 @@ class Scheduler(params: InclusiveCacheParameters) extends Module
     // SetIdxRan
     val sendRan   = Decoupled(new L2SetIdxHashFillRan())
     val ranMixOut = UInt(width = 128).asOutput
-    val ranMixIn  = UInt(width = params.setBits).asInput
+    val ranMixIn  = UInt(width = 32).asInput
     //config
     val config = new Bundle {
       val remaper       = new RemaperConfig().asInput
@@ -87,7 +87,7 @@ class Scheduler(params: InclusiveCacheParameters) extends Module
   io.out.b.ready := Bool(true) // disconnected
 
   val remaper   = Module(new Remaper(params))
-  val randomtable   = Module(new RandomTable(params))
+  val randomtable   = Module(new Maurice2015Hua2011Table(params))
   val attackdetector  = Module(new AttackDetector(params))
   val directory = Module(new Directory(params))
   val bankedStore = Module(new BankedStore(params))
@@ -412,11 +412,10 @@ class Scheduler(params: InclusiveCacheParameters) extends Module
 
     //randomtable
     import chisel3.util.random.FibonacciLFSR
-    val lfsr  = FibonacciLFSR.maxPeriod(128, true.B, seed = Some(123456789))
     val mix_c = Reg(io.in.c.bits.data.cloneType)
     val mix_d = Reg(io.in.d.bits.data.cloneType)
-    mix_c := Mux(io.in.c.valid || io.out.c.valid, mix_c + (io.in.c.bits.data ^ io.out.c.bits.data), mix_c - mix_d) + lfsr(63,   0)
-    mix_d := Mux(io.in.d.valid || io.out.d.valid, mix_d + (io.in.d.bits.data ^ io.out.d.bits.data), mix_c + mix_d) + lfsr(127, 64)
+    mix_c := Mux(io.in.c.valid || io.out.c.valid, mix_c + (io.in.c.bits.data ^ io.out.c.bits.data), mix_c - mix_d)
+    mix_d := Mux(io.in.d.valid || io.out.d.valid, mix_d + (io.in.d.bits.data ^ io.out.d.bits.data), mix_c + mix_d)
     when(reset) {
       mix_c := "h0123456789abcdef".U
       mix_d := "hfedcba9876543210".U
@@ -431,7 +430,7 @@ class Scheduler(params: InclusiveCacheParameters) extends Module
     randomtable.io.req(1) <> fsinkA.io.rtab.req    ; fsinkA.io.rtab.resp   := randomtable.io.resp(1) ; sinkA.io.hset(0) <> fsinkA.io.hset(0) ; sinkA.io.hset(1) <> fsinkA.io.hset(1) //fsinkA  -->  randomtable  --> sinkA
     randomtable.io.req(2) <> fsinkX.io.rtab.req    ; fsinkX.io.rtab.resp   := randomtable.io.resp(2) ; sinkX.io.hset(0) <> fsinkX.io.hset(0) ; sinkX.io.hset(1) <> fsinkX.io.hset(1) //fsinkX  -->  randomtable  --> sinkX
     randomtable.io.req(3) <> remaper.io.rtreq      ; remaper.io.rtresp     := randomtable.io.resp(3) ;
-    randomtable.io.req(4) <> fsinkA.io.ranchk.req  ; fsinkA.io.ranchk.resp := randomtable.io.resp(4) ;
+    //randomtable.io.req(4) <> fsinkA.io.ranchk.req  ; fsinkA.io.ranchk.resp := randomtable.io.resp(4) ;
     io.sendRan.valid              := randomtable.io.sendRan.valid
     io.sendRan.valid              := randomtable.io.sendRan.valid
     io.sendRan.bits               := randomtable.io.sendRan.bits

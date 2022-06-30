@@ -247,7 +247,7 @@ class CSRFileIO(implicit p: Parameters) extends CoreBundle
     val set_vxsat = Bool().asInput
   })
 
-  val pfcclient = new PFCClientIO(hartId)
+  val pfcclient = new PFCClientIO(p(freechips.rocketchip.subsystem.RocketTilesKey).length + 1)
 }
 
 class VConfig(implicit p: Parameters) extends CoreBundle {

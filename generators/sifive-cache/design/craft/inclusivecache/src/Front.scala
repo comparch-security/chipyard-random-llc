@@ -228,7 +228,7 @@ class FSink[T <: Data](val gen: T, params: InclusiveCacheParameters) extends Mod
   io.front.bits match {
     case a: TLBundleA    => {
       address                   := a.address
-      hsetknowns.valid          := a.setidx.valid
+      hsetknowns.valid          := false.B //a.setidx.valid
       hsetknowns.bits.lhset     := a.setidx.bits.lhset(params.setBits - 1, 0)
       hsetknowns.bits.rhset     := a.setidx.bits.rhset(params.setBits - 1, 0)
       if(!L2SetIdxHashFun.twinsInTile) {
@@ -287,7 +287,7 @@ class FSink[T <: Data](val gen: T, params: InclusiveCacheParameters) extends Mod
     assert(back.io.enq.ready && hset(0).io.enq.ready && hset(1).io.enq.ready)
   }
   //check
-  val ranchk = io.front.bits match {
+  /*val ranchk = io.front.bits match {
     case a: TLBundleA    =>  a.setidx.valid && io.rtsendDone
     case _               =>    false.B
   }
@@ -312,5 +312,5 @@ class FSink[T <: Data](val gen: T, params: InclusiveCacheParameters) extends Mod
              ranchk_hsetknowns.lhset, ranchk_result,
              ranchk_rstatus.oneloc,   ranchk_rstatus.cloc,       ranchk_rstatus.nloc)
     }
-  }
+  }*/
 }

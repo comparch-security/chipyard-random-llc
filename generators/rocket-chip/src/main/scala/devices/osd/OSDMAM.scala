@@ -106,7 +106,8 @@ class OSDMAM(implicit p: Parameters) extends LazyModule {
     val next_ws1_byaddr = next_ws1_addr(lgmem_dwB-1,0)        //byte addr in a beat
 
     val enpfc     = true
-    val pfcclient = Module(new OSDPFCClient(p(freechips.rocketchip.subsystem.RocketTilesKey).length, enpfc))
+    val pfcclientid = p(freechips.rocketchip.subsystem.RocketTilesKey).length
+    val pfcclient = Module(new OSDPFCClient(pfcclientid, pfcclientid+1, enpfc))
     // -------------req   stage-----------------------//
     io.req.ready := !busy
     rwaitacks    := rwaitacks  - (mem.d.fire() && !req.rw).asUInt() + (mem.a.fire() && !req.rw).asUInt()

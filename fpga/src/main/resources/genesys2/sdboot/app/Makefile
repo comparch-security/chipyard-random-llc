@@ -7,7 +7,7 @@ DRIVER_DIR := $(BROM_DIR)/driver
 CC=$(RISCV)/bin/riscv64-unknown-linux-gnu-gcc
 OBJCOPY=$(RISCV)/bin/riscv64-unknown-linux-gnu-objcopy
 OBJDUMP=$(RISCV)/bin/riscv64-unknown-linux-gnu-objdump
-CFLAGS= -static -g -O2 -I$(BROM_DIR)/include -I$(DRIVER_DIR)
+CFLAGS= -static -lpthread -g -O2 -I$(BROM_DIR)/include -I$(DRIVER_DIR)
 
 TARGETS = led pfc atdect autoSPEC
 

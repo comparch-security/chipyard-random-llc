@@ -509,7 +509,7 @@ object connect {
 
 
 trait HasPFCClient { this: freechips.rocketchip.rocket.CSRFile =>
-  val pfcclient = Module(new CSRPFCClient(hartId))
+  val pfcclient = Module(new CSRPFCClient(hartId, p(freechips.rocketchip.subsystem.RocketTilesKey).length + 1))
   def connectPFC = {
     io.pfcclient <> pfcclient.io.client
     pfcclient.io.access.addr       := io.rw.addr

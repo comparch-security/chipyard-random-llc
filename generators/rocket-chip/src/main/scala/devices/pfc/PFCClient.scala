@@ -30,10 +30,10 @@ class PFCCSRAccessIO extends Bundle {
   val interrupt = Input(Bool())
 }
 
-class CSRPFCClient(val clientID: Int) extends Module {
+class CSRPFCClient(val clientID: Int, val nClients: Int) extends Module {
   val io = IO(new Bundle {
     val access = new PFCCSRAccessIO()
-    val client = new PFCClientIO(clientID)
+    val client = new PFCClientIO(nClients)
   })
 
   val pfcc_addr = CSRs.pfcc.U
@@ -137,12 +137,11 @@ class CSRPFCClient(val clientID: Int) extends Module {
   when(csr_pfcr.io.deq.fire()) { printf("client %d get pfc %d\n", clientID.U, csr_pfcr.io.deq.bits) }
 }
 
-
-class OSDPFCClient(lclientID: Int, use: Boolean) extends Module { //OSDPFC use the last client ID
+class OSDPFCClient(clientID: Int, nClients: Int, use: Boolean) extends Module { //OSDPFC use the last client ID
   val io = IO(new Bundle {
     val req    = Flipped(Decoupled(new OSDMAMReq()))
     val resp   = Decoupled(UInt(64.W))
-    val client = new PFCClientIO(lclientID)
+    val client = new PFCClientIO(nClients)
   })
 
   if(!use) {
@@ -153,7 +152,7 @@ class OSDPFCClient(lclientID: Int, use: Boolean) extends Module { //OSDPFC use t
   } else {
     val (s_IDLE :: s_REQ :: s_REC :: s_TAIL ::  Nil) = Enum(4)
     val state = RegInit(s_IDLE)
-    val req   = Reg(new PFCReq(lclientID))
+    val req   = Reg(new PFCReq(nClients))
     val resp  = Module(new Queue(UInt(64.W), 1))
     val beats = Reg(UInt(11.W))
     val timecount = RegInit(63.U)
@@ -189,7 +188,7 @@ class OSDPFCClient(lclientID: Int, use: Boolean) extends Module { //OSDPFC use t
 
     //req   --> io.client.req
     io.client.req.valid           := state === s_REQ
-    io.client.req.bits.src        := lclientID.U
+    io.client.req.bits.src        := clientID.U
     io.client.req.bits.dst        := req.dst
     io.client.req.bits.ram        := req.ram
     io.client.req.bits.page       := req.page

@@ -145,7 +145,7 @@ class RandomTableBank(params: InclusiveCacheParameters) extends Module {
 
 class RandomTableIO(params: InclusiveCacheParameters) extends InclusiveCacheBundle(params) {
   val cmd     = Valid(new RandomTableBankCmd).asInput
-  val mix     = Valid(UInt(width = params.setBits)).asInput
+  val mix     = Valid(UInt(width = 32)).asInput
   val req     = Vec(params.remap.channels, Decoupled(new RandomTableReqIO(params.maxblkBits)).flip)  //C(release) X(ie:flush) A(acquire) R(remaper)  channel
   val resp    = Vec(params.remap.channels, Valid(new RandomTableBankResp(params.setBits)).asOutput)         //C(release) X(ie:flush) A(acquire) R(remaper)  channel
   val sendRan = Decoupled(new L2SetIdxHashFillRan())
@@ -222,6 +222,64 @@ class RandomTable(params: InclusiveCacheParameters) extends Module {
 
 }
 
+class Maurice2015Hua2011Table(params: InclusiveCacheParameters) extends Module {
+
+  val setBits   = params.setBits // l2 setbits
+  val tagBits   = params.tagBits // l2 tagbits
+  val channels  = params.remap.channels
+  val sets      = params.cache.sets
+  val blkBits   = L2SetIdxHashFun.blkBits
+
+  val io        = new RandomTableIO(params)
+  val sethash   = Module(new Maurice2015Hua2011(channels))
+  val sendRanQ  = Module(new Queue(io.sendRan.bits.cloneType, 1, pipe = false, flow = false))
+  val litPNGor  = Module(new PermutationsGenerator((1<<6) - 1))
+  //val bigPNGor  = Module(new PermutationsGenerator(sets - 1))
+
+  val cmdloc     = RegEnable(io.cmd.bits.loc, io.cmd.valid && io.cmd.bits.rst)
+  val wipeCount  = RegInit(UInt(1<<6,  width = 6 + 1))
+  val delayCount = Reg(Vec(2, UInt(width = 4)))
+  val wipeDone   = wipeCount(6)
+  val delayDone  = delayCount.map(_(3))
+  io.wipeDone    := wipeDone && delayDone(0)
+  io.sendDone    := io.wipeDone
+
+  when( io.cmd.valid && io.cmd.bits.rst   ) { wipeCount := 0.U;  delayCount(0) := 0.U }
+  when( litPNGor.io.fill.valid            ) { wipeCount := wipeCount + 1.U            }
+  when( wipeDone  && !delayDone(0)        ) { delayCount(0) := delayCount(0) + 1.U    }
+
+  //repermute
+  litPNGor.io.swap.valid             := io.mix.valid
+  litPNGor.io.swap.bits              := io.mix.bits
+  //bigPNGor.io.swap.valid             := RegNext(io.mix.valid)
+  //bigPNGor.io.swap.bits              := io.mix.bits(setBits, 0)
+
+  //fill
+  litPNGor.io.active                 := io.cmd.valid && io.cmd.bits.rst
+  //bigPNGor.io.active                 := io.cmd.valid && io.cmd.bits.rst
+  sethash.io.fillRan.valid           := !wipeDone
+  sethash.io.fillRan.bits.loc        := cmdloc
+  sethash.io.fillRan.bits.addr       := wipeCount
+  sethash.io.fillRan.bits.random     := io.mix.bits
+  sethash.io.fillSram.valid          := litPNGor.io.fill.valid
+  sethash.io.fillSram.bits           := litPNGor.io.fill.bits
+  sethash.io.fillSram.bits.loc       := cmdloc
+  litPNGor.io.fill.ready             := true.B
+  //bigPNGor.io.fill.ready             := true.B
+
+  (0 until channels).map { ch => {
+    //req
+    sethash.io.req(ch).valid         := io.req(ch).valid
+    sethash.io.req(ch).bits.blkadr   := io.req(ch).bits.blkadr
+    io.req(ch).ready                 := sethash.io.req(ch).ready
+    //resp
+    io.resp(ch).valid                := sethash.io.resp(ch).valid
+    io.resp(ch).bits.lhset           := sethash.io.resp(ch).bits.lhset
+    io.resp(ch).bits.rhset           := sethash.io.resp(ch).bits.rhset
+  }}
+
+}
+
 trait HasRandomBroadCaster { this: sifive.blocks.inclusivecache.InclusiveCache =>
   val (ranbcternode, ranbcterio) = {
     val nClients = p(freechips.rocketchip.subsystem.RocketTilesKey).length
@@ -231,33 +289,25 @@ trait HasRandomBroadCaster { this: sifive.blocks.inclusivecache.InclusiveCache =
     (node, io)
   }
   def createRandomBroadCaster(schedulers: Seq[Scheduler]) = {
-    val mix           = RegInit(0.U(128.W))
-    val ranGen1       = Reg(UInt(width =     112))
-    val ranGen2       = Reg(UInt(width =      96))
-    val ranGen3       = Reg(UInt(width =      80))
-    val ranGen4       = Reg(UInt(width =      64))
-    val ranGen5       = Reg(UInt(width =      48))
-    val ranGen6       = Reg(UInt(width =      32))
-    val ranGen7       = Reg(UInt(width =      16))
-    val ranFeedBack   = Reg(UInt(width =     128))
-    mix              := mix + RegNext((schedulers.map(_.io.ranMixOut).reduce(_^_) ^ ranFeedBack))
-    ranGen1          := L2SetIdxHashFun.ranGen(mix,         ranGen1.getWidth)
-    ranGen2          := L2SetIdxHashFun.ranGen(ranGen1,     ranGen2.getWidth)
-    ranGen3          := L2SetIdxHashFun.ranGen(ranGen2,     ranGen3.getWidth)
-    ranGen4          := L2SetIdxHashFun.ranGen(ranGen3,     ranGen4.getWidth)
-    ranGen5          := L2SetIdxHashFun.ranGen(ranGen4,     ranGen5.getWidth)
-    ranGen6          := L2SetIdxHashFun.ranGen(ranGen5,     ranGen6.getWidth)
-    ranGen7          := L2SetIdxHashFun.ranGen(ranGen6,     ranGen7.getWidth)
-    ranFeedBack      := Cat(ranGen7, ranGen6, ranGen5, ranGen4(63, 32) ^ ranGen4(31, 0))
+    import chisel3.util.random.FibonacciLFSR
+    val lfsr          = FibonacciLFSR.maxPeriod(128, true.B, seed = Some(123456789))
+    val ranGen1       = Reg(UInt(width =     schedulers(0).io.ranMixOut.getWidth))
+    val ranGen2       = Reg(UInt(width =     128))
+    val ranGen3       = Reg(UInt(width =     128))
+    val ranGen4       = Reg(UInt(width =     schedulers(0).io.ranMixIn.getWidth))
+    ranGen1          := L2SetIdxHashFun.PermutationStage(L2SetIdxHashFun.tx3nt(schedulers.map(_.io.ranMixOut).reduce(_^_), 1))
+    ranGen2          := L2SetIdxHashFun.PermutationStage(L2SetIdxHashFun.tx3nt(ranGen1 ^ lfsr, 2))
+    ranGen3          := L2SetIdxHashFun.tx3nt(ranGen2, 3)
+    ranGen4          := L2SetIdxHashFun.XorConcentrate(ranGen3, ranGen4.getWidth)
     val sendRanQ      = Module(new Queue(schedulers(0).io.sendRan.bits.cloneType, 1, pipe = false, flow = false))
     val sendRanArb    = Module(new RRArbiter(schedulers(0).io.sendRan.bits.cloneType, schedulers.length))
     schedulers zip sendRanArb.io.in map { case(s, arb) => {
-      s.io.ranMixIn       := ranGen5
+      s.io.ranMixIn       := ranGen4
       arb.valid           := s.io.sendRan.valid
       arb.bits            := s.io.sendRan.bits
       s.io.sendRan.ready  := arb.ready
-      require(s.io.ranMixOut.getWidth == mix.getWidth)
-      require(s.io.ranMixIn.getWidth  <= ranGen5.getWidth)
+      require(s.io.ranMixOut.getWidth == ranGen1.getWidth)
+      require(s.io.ranMixIn.getWidth  <= ranGen4.getWidth)
     }}
     sendRanQ.io.enq        <> sendRanArb.io.out
     ranbcterio.send        <> sendRanQ.io.deq
@@ -541,7 +591,8 @@ class DataBlockSwaper(params: InclusiveCacheParameters) extends Module
     resp_data(b).io.enq.bits  := io.iresp(b)
     when(resp_data(b).io.enq.valid) { assert(resp_data(b).io.enq.ready) }
     when(resp_data(b).io.deq.fire()) {
-      swap_data(b)(RegNext(io.ireq(b).bits.index(beatBitspb-1, 0), io.ireq(b).fire())) := resp_data(b).io.deq.bits
+      if(beatBitspb == 0)  swap_data(b)(0) := resp_data(b).io.deq.bits
+      else                 swap_data(b)(RegNext(io.ireq(b).bits.index(beatBitspb-1, 0), io.ireq(b).fire())) := resp_data(b).io.deq.bits
     }
     resp_data(b).io.deq.ready := io.ireq(b).ready || rreq.head
 
