@@ -146,9 +146,10 @@ class InclusiveCache(
     val flushNoMatch   = Wire(init = Bool(true))
     val flushOutValid  = RegInit(Bool(false))
     val flushOutReady  = Wire(init = Bool(false))
-    val remaperConfigR = Reg(new RemaperConfig())
     val atDetConfig0R  = Reg(new AttackDetectorConfig0())
     val atDetConfig1R  = Reg(new AttackDetectorConfig1())
+    val cmd            = Reg(UInt(XOPCODE.SZ))
+    val blkstate       = RegInit(Bool(false))
     when(reset) {
       atDetConfig0R.athreshold      := 0.U
       atDetConfig0R.enath           := true.B
@@ -171,16 +172,18 @@ class InclusiveCache(
     val flush32 = RegField.w(32, RegWriteFn((ivalid, oready, data) => {
       when (oready) { flushOutReady := Bool(true) }
       when (ivalid) { flushInValid := Bool(true) }
-      when (ivalid && !flushInValid) { flushInAddress := data << 4 }
+      when (ivalid && !flushInValid) { flushInAddress := data << 4; cmd := XOPCODE.FLUSH  }
       (!flushInValid, flushOutValid)
     }), RegFieldDesc("Flush32", "Flush the physical address equal to the 32-bit written data << 4 from the cache"))
 
     val flush64 = RegField.w(64, RegWriteFn((ivalid, oready, data) => {
       when (oready) { flushOutReady := Bool(true) }
       when (ivalid) { flushInValid := Bool(true) }
-      when (ivalid && !flushInValid) { flushInAddress := data }
+      when (ivalid && !flushInValid) {
+        flushInAddress := data >> 8; cmd := data(XOPCODE.SZ - 1, 0)
+      }
       (!flushInValid, flushOutValid)
-    }), RegFieldDesc("Flush64", "Flush the phsyical address equal to the 64-bit written data from the cache"))
+    }), RegFieldDesc("Flush64", "Flush the phsyical address equal to the 64-bit written data from the cache; Check the if the phsyical address in the cache"))
 
     // Information about the cache configuration
     val banksR  = RegField.r(8, UInt(node.edges.in.size),               RegFieldDesc("Banks",
@@ -192,10 +195,7 @@ class InclusiveCache(
     val lgBlockBytesR = RegField.r(8, UInt(log2Ceil(cache.blockBytes)), RegFieldDesc("lgBlockBytes",
       "Base-2 logarithm of the bytes per cache block", reset=Some(log2Ceil(cache.blockBytes))))
 
-    val remaperConfig  = RegField(64, remaperConfigR.asUInt, RegWriteFn((ivalid, oready, data) => {
-      when (ivalid ) { remaperConfigR :=  new RemaperConfig().fromBits(data) }
-      (true.B, true.B)
-    }), RegFieldDesc("Remaper", "Config"))
+    val blkStateField  = RegField.r(8, blkstate, RegFieldDesc("BlockState", "hit?"))
 
     val atDetConfig0  = RegField(64, atDetConfig0R.asUInt, RegWriteFn((ivalid, oready, data) => {
       when (ivalid ) { atDetConfig0R :=  new AttackDetectorConfig0().fromBits(data) }
@@ -212,6 +212,7 @@ class InclusiveCache(
         0x000 -> RegFieldGroup("Config", Some("Information about the Cache Configuration"), Seq(banksR, waysR, lgSetsR, lgBlockBytesR)),
         0x200 -> (if (control.get.beatBytes >= 8) Seq(flush64) else Seq()),
         0x240 -> Seq(flush32),
+        0x250 -> Seq(blkStateField),
         //0x280 -> Seq(remaperConfig),
         0x2C0 -> Seq(atDetConfig0),
         0x2C8 -> Seq(atDetConfig1)
@@ -235,20 +236,22 @@ class InclusiveCache(
       scheduler.io.in <> in
       out <> scheduler.io.out
 
-      val flushSelect = edgeIn.manager.managers.flatMap(_.address).map(_.contains(flushInAddress)).reduce(_||_)
+      val flushSelect = edgeIn.manager.managers.flatMap(_.address).map(_.contains(flushInAddress)).reduce(_||_) && (cmd =/= 0.U)
       when (flushSelect) { flushNoMatch := Bool(false) }
 
       when (flushSelect && scheduler.io.req.ready)  { flushInReady := Bool(true) }
-      when (scheduler.io.resp.valid) { flushOutValid := Bool(true) }
+      when (scheduler.io.resp.valid) {
+        blkstate      := scheduler.io.resp.bits.hit && scheduler.io.resp.bits.opcode === XOPCODE.CHECK
+        flushOutValid := Bool(true)
+      }
       assert (!scheduler.io.resp.valid || flushSelect)
 
       scheduler.io.req.valid := flushInValid && flushSelect
       scheduler.io.req.bits.address := flushInAddress
-      scheduler.io.req.bits.opcode := XOPCODE.FLUSH
+      scheduler.io.req.bits.opcode := cmd
       scheduler.io.resp.ready := !flushOutValid
 
       //config
-      scheduler.io.config.remaper        := remaperConfigR
       scheduler.io.config.atdetconf0     := atDetConfig0R
       scheduler.io.config.atdetconf1     := atDetConfig1R
 

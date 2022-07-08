@@ -234,6 +234,10 @@ class Directory(params: InclusiveCacheParameters) extends Module
   if(true) {
     val timers  = RegInit(UInt(0, width = 32))
     timers := timers+1.U
-    when(io.write.fire() && io.write.bits.data.state =/= INVALID) { printf("clk %d tag %x set %x way %x swz %d loc %d\n",timers, io.write.bits.data.tag, io.write.bits.set, io.write.bits.way, io.write.bits.swz, io.write.bits.data.loc)}
+    when(io.write.fire() && io.write.bits.data.state =/= INVALID) {
+      printf("timers %x %x %x  %x  %d  %d  %d  %d %d\n", timers,
+        io.write.bits.data.tag, io.write.bits.set, io.write.bits.way, io.write.bits.swz, io.write.bits.data.loc,
+        io.write.bits.data.state,  io.write.bits.data.dirty,  io.write.bits.data.clients)
+    }
   }
 }

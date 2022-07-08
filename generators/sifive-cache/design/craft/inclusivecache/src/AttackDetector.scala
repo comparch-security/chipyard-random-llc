@@ -297,7 +297,7 @@ class AttackDetector(params: InclusiveCacheParameters) extends Module
   require(evFracWidth >= emazFracWidth)
 
   val laseSet = (1 << params.setBits) - 1
-  def UIntMax(u:        UInt):  UInt = { ((1 << u.getWidth) -1).U        }
+  def UIntMax(u:        UInt):  UInt = {((1.toLong << u.getWidth) -1).U  }
   def evInt2Fix(evicts: UInt):  UInt = { Cat(evicts, 0.U(evFracWidth.W)) }
   def evFix2Int(evicts: UInt):  UInt = { evicts >> evFracWidth           }
   def fracAllign(frac:  UInt):  UInt = {
@@ -361,23 +361,17 @@ class AttackDetector(params: InclusiveCacheParameters) extends Module
   io.remap.valid   := false.B
   when(count_access > io.config0.athreshold && io.config0.enath)      { io.remap.valid := true.B }
   when(count_evicts > io.config0.ethreshold && io.config0.eneth)      { io.remap.valid := true.B }
+  when(evSum       ===    UIntMax(evSum)    && io.config1.enzth)      { io.remap.valid := true.B }
   when(io.remap.bits.atdetec                && io.config1.enzth)      { io.remap.valid := true.B }
   when(count_period > io.config1.period     && state =/= s_idle)      { io.remap.valid := true.B }  //not finish z in time
   when(io.access.valid && io.remap.ready) {
-    count_access    := count_access   + 1.U
-    count_period    := count_period   + 1.U
+    when(count_access =/= UIntMax(count_access)                 ) { count_access    := count_access   + 1.U }
+    when(count_period =/= UIntMax(count_period)                 ) { count_period    := count_period   + 1.U }
   }
   when(io.evict.valid && io.remap.ready) {
-    count_evicts    := count_evicts   + 1.U
-    when(recordWay === 0.U && evLatch(0) < UIntMax(evLatch(0))) { evLatch(0) := evLatch(0) + 1.U  }
-    when(recordWay === 1.U && evLatch(1) < UIntMax(evLatch(1))) { evLatch(1) := evLatch(1) + 1.U  }
-  }
-  when(!io.config0.enath)   { count_access := 0.U }
-  when(!io.config0.eneth)   { count_evicts := 0.U }
-  when(!io.config1.enzth)   {
-    count_period     :=   0.U
-    evLatch(0)       :=   0.U
-    evLatch(1)       :=   0.U
+    when(count_evicts =/= UIntMax(count_evicts)                 ) { count_evicts    := count_evicts   + 1.U  }
+    when(recordWay === 0.U && evLatch(0) =/= UIntMax(evLatch(0))) { evLatch(0)      := evLatch(0)     + 1.U  }
+    when(recordWay === 1.U && evLatch(1) =/= UIntMax(evLatch(1))) { evLatch(1)      := evLatch(1)     + 1.U  }
   }
   when(io.remap.fire() || !wipeDone) {
     count_access     := 0.U

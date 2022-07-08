@@ -454,7 +454,7 @@ class Scheduler(params: InclusiveCacheParameters) extends Module
     assert(PopCount(rereq_arb.io.in.map(_.valid)) <= 1.U)
     assert(PopCount(mshrs.map( _.io.schedule.bits.rrfreeC)) <= 2.U)
     assert(PopCount(mshrs.map( _.io.schedule.bits.rrfreeA)) <= 2.U)
-    when(rereq_arb.io.out.valid) { assert(sinkC.io.rereq.valid || sinkA.io.rereq.valid) }
+    when(rereq_arb.io.out.valid) { assert(sinkC.io.rereq.valid || sinkA.io.rereq.valid || sinkX.io.rereq.valid) }
 
 
     //remap cache

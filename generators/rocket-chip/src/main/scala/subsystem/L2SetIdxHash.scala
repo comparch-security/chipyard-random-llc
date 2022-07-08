@@ -333,39 +333,35 @@ class Maurice2015Hua2011(val channels: Int) extends Module
   val sramRWValid     = !wipeDone || (io.fillSram.valid && io.fillSram.bits.loc === L2RTAL.RIGH)
   val sramRWAddr      = Mux(wipeDone, io.fillSram.bits.addr,   wipeCount)
   val sramRWData      = Mux(wipeDone, io.fillSram.bits.number, wipeCount)
-  val blkadrHKeyL     = Reg(UInt(reqArb.io.out.bits.blkadr.getWidth.W))
-  val blkadrHKeyR     = Reg(UInt(reqArb.io.out.bits.blkadr.getWidth.W))
+  val blkadrHKeyL     = Reg(UInt(32.W))
+  val blkadrHKeyR     = Reg(UInt(32.W))
   val blkadrHLatchL   = Reg(UInt(reqArb.io.out.bits.blkadr.getWidth.W))
   val blkadrHLatchR   = Reg(UInt(reqArb.io.out.bits.blkadr.getWidth.W))
   val sramLIndex      = L2SetIdxHashFun.Maurice2015(reqArb.io.out.bits.blkadr, sramLIndexHkey)
   val sramRIndex      = L2SetIdxHashFun.Maurice2015(reqArb.io.out.bits.blkadr, sramRIndexHkey)
   val ranL = sramL.read(sramLIndex, reqArb.io.out.valid && !sramLWValid)
   val ranR = sramR.read(sramRIndex, reqArb.io.out.valid && !sramRWValid)
-  blkadrHLatchL      := L2SetIdxHashFun.XorConcentrate(L2SetIdxHashFun.tx3nt(Cat(blkadrHKeyL, reqArb.io.out.bits.blkadr), 1), blkadrHLatchL.getWidth)
-  blkadrHLatchR      := L2SetIdxHashFun.XorConcentrate(L2SetIdxHashFun.tx3nt(Cat(blkadrHKeyR, reqArb.io.out.bits.blkadr), 1), blkadrHLatchR.getWidth)
-  //blkadrHLatchL      := reqArb.io.out.bits.blkadr ^ blkadrHKeyL
-  //blkadrHLatchR      := reqArb.io.out.bits.blkadr ^ blkadrHKeyR
+  //blkadrHLatchL      := L2SetIdxHashFun.XorConcentrate(L2SetIdxHashFun.tx3nt(Cat(blkadrHKeyL, reqArb.io.out.bits.blkadr), 2), blkadrHLatchL.getWidth)
+  //blkadrHLatchR      := L2SetIdxHashFun.XorConcentrate(L2SetIdxHashFun.tx3nt(Cat(blkadrHKeyR, reqArb.io.out.bits.blkadr), 2), blkadrHLatchR.getWidth)
+  blkadrHLatchL      := reqArb.io.out.bits.blkadr //^ blkadrHKeyL
+  blkadrHLatchR      := reqArb.io.out.bits.blkadr //^ blkadrHKeyR
 
   //fill
   wipeCount := wipeCount + (!wipeDone).asUInt
   when(sramLWValid) { sramL.write(sramLWAddr, sramLWData) }
   when(sramRWValid) { sramR.write(sramRWAddr, sramRWData) }
+  when(io.fillRan.valid && io.fillRan.bits.loc === L2RTAL.LEFT) { blkadrHKeyL := (blkadrHKeyL << 1) + io.fillRan.bits.random }
+  when(io.fillRan.valid && io.fillRan.bits.loc === L2RTAL.RIGH) { blkadrHKeyR := (blkadrHKeyR << 1) + io.fillRan.bits.random }
   (0 until 6).map { i => {
     when(io.fillRan.valid && io.fillRan.bits.addr === i.U) {
-      when(io.fillRan.bits.loc === L2RTAL.LEFT) {
-        sramLIndexHkey(i) := io.fillRan.bits.random
-        blkadrHKeyL       := blkadrHKeyL + (blkadrHKeyR ^ io.fillRan.bits.random)
-      }
-      when(io.fillRan.bits.loc === L2RTAL.RIGH) {
-        sramRIndexHkey(i) := io.fillRan.bits.random
-        blkadrHKeyR       := blkadrHKeyR + (blkadrHKeyL ^ io.fillRan.bits.random)
-      }
+      when(io.fillRan.bits.loc === L2RTAL.LEFT) { sramLIndexHkey(i) := io.fillRan.bits.random }
+      when(io.fillRan.bits.loc === L2RTAL.RIGH) { sramRIndexHkey(i) := io.fillRan.bits.random }
     }
   }}
 
   //req & resp
-  val hua2011L =  L2SetIdxHashFun.tx3nt(Cat(ranL, blkadrHLatchL), 1)
-  val hua2011R =  L2SetIdxHashFun.tx3nt(Cat(ranR, blkadrHLatchR), 1)
+  val hua2011L =  L2SetIdxHashFun.tx3nt(Cat(ranL, blkadrHLatchL), 3)
+  val hua2011R =  L2SetIdxHashFun.tx3nt(Cat(ranR, blkadrHLatchR), 3)
   (0 until channels).map { ch => {
     //req
     reqArb.io.in(ch).valid    := io.req(ch).valid

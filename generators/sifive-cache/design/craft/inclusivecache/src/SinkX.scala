@@ -23,9 +23,11 @@ import freechips.rocketchip.tilelink._
 object XOPCODE //remaper cmd
 {
   // locations
-  val SZ = 1
-  def FLUSH  = UInt(0,SZ)
-  def SWAP   = UInt(1,SZ)
+  val SZ = 2
+  def SWAP     = UInt(0,SZ)
+  def FLUSH    = UInt(1,SZ)
+  def FLUSHL1  = UInt(2,SZ) // shoot-down inner
+  def CHECK    = UInt(3,SZ)
 }
 
 class SinkXRequest(params: InclusiveCacheParameters) extends InclusiveCacheBundle(params)
@@ -80,7 +82,7 @@ class SinkX(params: InclusiveCacheParameters) extends Module
   if(params.remap.en) {
     val rereq_entries = 1
     val fldone = RegInit(true.B)
-    val reqarb = Module(new Arbiter(io.req.bits.cloneType, 2))
+    val reqarb = Module(new RRArbiter(io.req.bits.cloneType, 2))
     val flush_arb = Module(new Arbiter(io.req.bits.cloneType, 3))
     val flush_req = Module(new Queue(io.req.bits.cloneType, 1, pipe = false, flow = false ))
     val swap_req  = Module(new Queue(io.req.bits.cloneType, 1, pipe = false, flow = false ))
@@ -89,7 +91,7 @@ class SinkX(params: InclusiveCacheParameters) extends Module
     flush_arb.io.in(0)                     <> Queue(io.rereq, 1, pipe = false, flow = false)
     //firereq_flush   -> flush_arb
     flush_arb.io.in(1).valid               := x.valid && fldone
-    flush_arb.io.in(1).bits.opcode         := XOPCODE.FLUSH
+    flush_arb.io.in(1).bits.opcode         := x.bits.opcode
     flush_arb.io.in(1).bits.source         := UInt(0)
     flush_arb.io.in(1).bits.offset         := offset
     flush_arb.io.in(1).bits.newset.valid   := hset(1).valid
@@ -97,10 +99,11 @@ class SinkX(params: InclusiveCacheParameters) extends Module
     flush_arb.io.in(1).bits.loc(1)         := hset(1).bits.loc
     flush_arb.io.in(1).bits.set            := hset(0).bits.set
     flush_arb.io.in(1).bits.loc(0)         := hset(0).bits.loc
-    flush_arb.io.in(1).bits.tag            := tag
+    flush_arb.io.in(1).bits.tag            := Cat(tag, set)
     x.ready                                := flush_arb.io.in(1).ready && fldone
-    when( x.fire()  )                     { fldone := false.B }
-    when( io.fldone )                     { fldone := true.B  }
+    //when( x.fire()  )                     { fldone := false.B }
+    //when( io.fldone )                     { fldone := true.B  }
+    fldone := true.B
     //remaper_flush   -> flush_arb
     flush_arb.io.in(2).valid               := io.rx.valid && io.rx.bits.opcode === XOPCODE.FLUSH
     flush_arb.io.in(2).bits.opcode         := XOPCODE.FLUSH

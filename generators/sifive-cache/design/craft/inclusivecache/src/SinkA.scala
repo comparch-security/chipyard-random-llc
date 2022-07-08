@@ -125,7 +125,7 @@ class SinkA(params: InclusiveCacheParameters) extends Module
     req_block  := first && (rrbook(rereq_entries-1) || !reqarb.io.in(1).ready)
 
     val rrbook_shiftl = (reqarb.io.in(1).fire() &&  reqarb.io.in(1).bits.newset.valid).asUInt
-    val rrbook_shiftr = (reqarb.io.in(0).fire() && !reqarb.io.in(0).bits.newset.valid).asUInt + io.rrfree(1, 0)
+    val rrbook_shiftr = (reqarb.io.in(0).fire() && !reqarb.io.in(0).bits.newset.valid).asUInt + io.rrfree((io.rrfree.getWidth - 1).min(1), 0)
 
     rrbook := rrbook << rrbook_shiftl >> rrbook_shiftr
     when(rrbook === 0.U && rrbook_shiftl.asBool()) { rrbook := 1.U }

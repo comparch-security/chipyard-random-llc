@@ -24,6 +24,7 @@ import freechips.rocketchip.tilelink._
 class SourceXRequest(params: InclusiveCacheParameters) extends SinkXRequest(params)
 {
   val fail = Bool()
+  val hit  = Bool()
 }
 
 class SourceX(params: InclusiveCacheParameters) extends Module

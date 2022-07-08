@@ -135,6 +135,8 @@ class MSHR(params: InclusiveCacheParameters) extends Module
   val s_pprobe         = RegInit(Bool(true)) // B
   val s_acquire        = RegInit(Bool(true)) // A  s_release, s_pprobe [1]
   val s_flush          = RegInit(Bool(true)) // X  w_releaseack
+  val s_flushl1        = RegInit(Bool(true)) // X  w_rprobeacklast
+  val s_check          = RegInit(Bool(true)) // X  check state
   val w_grantfirst     = RegInit(Bool(true))
   val w_grantlast      = RegInit(Bool(true))
   val w_grant          = RegInit(Bool(true)) // first | last depending on wormhole
@@ -224,8 +226,8 @@ class MSHR(params: InclusiveCacheParameters) extends Module
   io.schedule.bits.c.valid := (!s_release && w_rprobeackfirst) || (!s_probeack && w_pprobeackfirst)
   io.schedule.bits.d.valid := !s_execute && w_pprobeack && w_grant
   io.schedule.bits.e.valid := !s_grantack && w_grantfirst
-  io.schedule.bits.x.valid := !s_flush && w_releaseack
-  io.schedule.bits.dir.valid := (!s_release && w_rprobeackfirst) || (!s_writeback && no_wait) || (!s_swap && meta.stm)
+  io.schedule.bits.x.valid := (!s_flush && w_releaseack) || (!s_flushl1 && w_rprobeacklast) || !s_check
+  io.schedule.bits.dir.valid := (!s_release && w_rprobeackfirst) || (!s_writeback && no_wait) || (!s_flushl1 && w_rprobeacklast) || (!s_swap && meta.stm)
   io.schedule.bits.rmp.valid := !s_swap
   val effective_schedule   = io.schedule.bits.a.valid     || io.schedule.bits.b.valid     || io.schedule.bits.c.valid     ||
                              io.schedule.bits.d.valid     || io.schedule.bits.e.valid     || io.schedule.bits.x.valid     ||
@@ -235,9 +237,11 @@ class MSHR(params: InclusiveCacheParameters) extends Module
 
   // Schedule completions
   when (io.schedule.ready) {
+                                    s_check      := Bool(true)
                                     s_swap       := Bool(true)
                                     s_rprobe     := Bool(true)
     when (w_rprobeackfirst)       { s_release    := Bool(true) }
+    when (w_rprobeacklast )       { s_flushl1    := Bool(true) }
                                     s_pprobe     := Bool(true)
     when (s_release && s_pprobe)  { s_acquire    := Bool(true) }
     when (w_releaseack)           { s_flush      := Bool(true) }
@@ -278,9 +282,15 @@ class MSHR(params: InclusiveCacheParameters) extends Module
         final_meta_writeback.clients := meta.clients & ~probes_toN
       }
       final_meta_writeback.hit := Bool(false)
-   }.elsewhen(request.opcode === XOPCODE.SWAP) {
-
-   }
+    }
+    when(request.opcode === XOPCODE.FLUSHL1) {
+      when (meta.hit && Bool(!params.firstLevel) && meta.clients =/= 0.U) {
+        final_meta_writeback.dirty   := meta.dirty
+        final_meta_writeback.clients := meta.clients & ~probes_toN
+        final_meta_writeback.state   := TIP //not sure?
+      }
+    }
+    when(request.opcode === XOPCODE.SWAP) { }
   } .otherwise {
     final_meta_writeback.dirty := (meta.hit && meta.dirty) || !request.opcode(2)
     final_meta_writeback.state := Mux(req_needT,
@@ -358,7 +368,9 @@ class MSHR(params: InclusiveCacheParameters) extends Module
   io.schedule.bits.d.bits.bad     := bad_grant
   io.schedule.bits.e.bits.sink    := sink
   io.schedule.bits.x.bits.fail    := Bool(false)
+  io.schedule.bits.x.bits.hit     := meta.hit
   io.schedule.bits.x.bits.source  := request.source
+  io.schedule.bits.x.bits.opcode  := request.opcode
   io.schedule.bits.dir.bits.swz   := meta.swz
   io.schedule.bits.dir.bits.set   := request.set
   io.schedule.bits.dir.bits.way   := meta.way
@@ -383,7 +395,6 @@ class MSHR(params: InclusiveCacheParameters) extends Module
     io.schedule.bits.rrfreeA               := request.prio(0) && !request.control
     io.schedule.bits.rrfreeC               := request.prio(2) && !request.control
   }
-
                                                
   // Coverage of state transitions
   def cacheState(entry: DirectoryEntry, hit: Bool) = {
@@ -636,6 +647,8 @@ class MSHR(params: InclusiveCacheParameters) extends Module
     s_pprobe         := Bool(true)
     s_acquire        := Bool(true)
     s_flush          := Bool(true)
+    s_flushl1        := Bool(true)
+    s_check          := Bool(true)
     w_grantfirst     := Bool(true)
     w_grantlast      := Bool(true)
     w_grant          := Bool(true)
@@ -675,8 +688,8 @@ class MSHR(params: InclusiveCacheParameters) extends Module
     }
     // For X channel requests (ie: flush swap)
     .elsewhen (new_request.control && Bool(params.control)) { // new_request.prio(0)
+      s_nop   := Bool(false)        //insert nop to wait write dir finished and force repeat to read dir so avoid repeat bug caused by tag 0 match
       when(new_request.opcode === XOPCODE.FLUSH) {
-        s_nop   := Bool(false)        //insert nop to wait write dir finished and force repeat to read dir so avoid repeat bug caused by tag 0 match
         s_flush := Bool(false)
         // Do we need to actually do something?
         when (new_meta.hit) {
@@ -690,8 +703,20 @@ class MSHR(params: InclusiveCacheParameters) extends Module
           }
         }
       }
+      when(new_request.opcode === XOPCODE.FLUSHL1) { //shoot-down inner caches
+        s_flushl1    := Bool(false)
+        when (new_meta.hit) {
+          when (Bool(!params.firstLevel) && (new_meta.clients =/= UInt(0))) {
+            s_rprobe := Bool(false)
+            w_rprobeackfirst := Bool(false)
+            w_rprobeacklast := Bool(false)
+          }
+        }
+      }
+      when(new_request.opcode === XOPCODE.CHECK) {
+        s_check       := Bool(false)
+      }
       when(new_request.opcode === XOPCODE.SWAP && Bool(params.remap.en)) {
-        s_nop         := Bool(false)             //insert nop to wait write dir finished and force repeat to read dir so avoid repeat bug caused by tag 0 match
         s_swap        := Bool(false)
         meta.swz      := Bool(false)
       }
