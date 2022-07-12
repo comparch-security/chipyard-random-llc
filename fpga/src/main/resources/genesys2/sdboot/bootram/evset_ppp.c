@@ -8,18 +8,20 @@
 
 cacheBlock_t*    target;
 cacheBlock_t*    probe;
-uint16_t         fails;
-uint32_t         accesses;
+uint16_t         fails[2];
+uint32_t         accesses[2];
 uint32_t         i;
 uint8_t          retrys;
 uint16_t         tests;
 uint32_t         evsize;
 uint8_t          configs;
+uint8_t          speed;
 
 int main() {
   uart_init();
   kprintln("evset_ppp  in lru cache TESTS %d", TESTS);
-  kprintln("config fails aver_accesses");
+  kprintln("config slow fails aver_accesses fast fails aver_accesses");
+
 
 
   for(configs = 0; configs < 9; configs++) {
@@ -43,9 +45,10 @@ int main() {
     probe = (cacheBlock_t*)TEST_START + (100*BLKS);
     for(i = 0; i < 10*BLKS; i++) access((void *)probe++);
 
-    fails       = 0;
-    accesses    = 0;
-    for(tests = 0; tests < TESTS; tests++) {
+    fails[0]    = 0; fails[1]    = 0;
+    accesses[0] = 0; accesses[1] = 0;
+    for(tests = 0,  speed = 0; tests < 2*TESTS; tests++) {
+      if(tests >= TESTS) speed = 1;
       evsize      = 0;
       target      = (cacheBlock_t*)TEST_TARGET;// + tests;
       for(retrys = 0, evsize = 0; retrys < 1 && evsize < WAYS; retrys++) {
@@ -60,9 +63,10 @@ int main() {
           if(!clcheck_f((void *)target)) break;
           probe++;
           probe->prev = probe - 1;
-          accesses++;
+          accesses[speed]++;
         }
-        for(probe->next = 0, probe = probe->start; probe->next != 0; probe = probe->next, accesses++);
+        access((void *)target);
+        for(probe->next = 0, probe = probe->start; speed == 0 && probe->next != 0; probe = probe->next, accesses[speed]++);
 
         //step 2 prune   
         for(probe = probe->start; ; probe = probe->next) {
@@ -70,31 +74,42 @@ int main() {
           else                         {probe->hit = 0;}
           if(probe->prev != 0) {
             probe->start = probe->prev->start;
-            if(probe->prev->prev != 0 && probe->prev->hit == 0) probe->prev = probe->prev->prev;
-            if(probe->hit == 0)                                 probe->prev->next = probe->next;        
+            if(speed == 0) {
+              if(probe->prev->prev != 0 && probe->prev->hit == 0) probe->prev = probe->prev->prev;
+              if(probe->hit == 0)                                 probe->prev->next = probe->next;
+            } else {
+              if(probe->prev->prev != 0 && probe->prev->hit == 1) probe->prev = probe->prev->prev;
+              if(probe->hit == 1)                                 probe->prev->next = probe->next;
+            }
           }
-          if(probe->start == probe && probe->hit == 0) { probe->start = probe->next; }
+          if(speed == 0) { if(probe->start == probe && probe->hit == 0) { probe->start = probe->next; }}
+          else           { if(probe->start == probe && probe->hit == 1) { probe->start = probe->next; }}
           if(probe->next == 0) break;
-          accesses++;
+          accesses[speed]++;
         }
 
         //step 3 probe
         if((uint64_t)probe->start != 0) {
-          for(probe = probe->start, access((void *)target); ; probe = probe->next) {
-            if(!clcheck_f((void *)probe)) evset[evsize++] = probe;
+          if(speed == 0) access((void *)target);
+          for(probe = probe->start; ; probe = probe->next) {
+            if(speed == 0) { if(!clcheck_f((void *)probe)) evset[evsize++] = probe; }
+            else           { if( clcheck_f((void *)probe)) evset[evsize++] = probe; }
             access((void *)probe);
-            accesses++;
+            accesses[speed]++;
             if(evsize == WAYS || probe->next == 0) break;
           }
         }
       }
       //check
-      if(evsize <  WAYS)          fails ++;
-      else if(evset_test((void *)target, 1) < 1)  fails ++;
+      if(evsize <  WAYS)                          fails[speed] ++;
+      else if(evset_test((void *)target, 1) < 1)  fails[speed] ++;
 
       for(i = 0; i < 10*BLKS; i++);
     }
-    kprintln("   %d      %d      %d", configs, fails, accesses/TESTS);
+
+    accesses[0] = accesses[0]/TESTS;
+    accesses[1] = accesses[1]/TESTS;
+    kprintln("   %d    %d    %d    %d    %d", configs, fails[0], accesses[0], fails[1], accesses[1]);
   }
   while(1);
 }

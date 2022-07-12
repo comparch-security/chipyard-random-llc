@@ -22,7 +22,7 @@ c_source+= $(BROM_DIR)/kprintf.c
 
 
 TARGETS = jump dram dram_2 dram_heay dram_check_deadlock baresd fat32txt fat32bin fat32elf testpfc testled \
-          evset_ge evset_ct evset_ppp
+          evset_threshold evset_ge evset_ct evset_ppp
 
 RISCV_FILES =  $(addsuffix .riscv, $(TARGETS))
 DUMP_FILES  =  $(addsuffix .dump,  $(TARGETS))

@@ -43,6 +43,24 @@ inline void accessWithfence(void *p)
   asm volatile ("fence");
 }
 
+inline uint64_t timeAccess(void *p)
+{
+  volatile uint64_t time;
+
+  asm volatile (
+    "fence                 \n"
+    "rdcycle a0            \n"
+    "lb %1, 0(%0)          \n"
+    "fence                 \n"
+    "rdcycle %1            \n"
+    "sub %1, %1, a0        \n"
+    : "=r"(time)                // output
+    : "r"(p)                    // input
+    : "a0");                    // clobber registers
+
+  return time;
+}
+
 inline void clflush_f(void *p)
 { 
   asm volatile ("fence");
@@ -71,7 +89,7 @@ uint16_t evset_test(void *target, uint8_t tests) {
   uint16_t passes = 0;
   for(i = 0; i < tests || (i == 0 && tests == 0); i++) {
     access((void *)target);
-    for(j = 0; j<WAYS; j++) { access((void *)evset[j]); }
+    for(j = 0; j<WAYS; j++) { accessWithfence((void *)evset[j]); }
     if(clcheck_f((void *)target) == 0) passes++;
   }
   return passes;
