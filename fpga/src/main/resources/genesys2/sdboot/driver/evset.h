@@ -6,14 +6,17 @@
 #define TEST_TARGET         0x80080000
 #define TEST_START          0xb0000000
 #define TEST_END            0xc0000000
-#define TESTS               1000
+#define TESTS               10
 #define SETS                1024
 #define WAYS                16
 #define BLKS                (SETS*WAYS)
 
+#define THRL2MISS           60
+
 void      clflush_f(void *p);
 void      clflushl1_f(void *p);
 uint8_t   clcheck_f(void *p);
+uint8_t   accl2hit(void *p)__attribute__((noinline));
 uint16_t  evset_test(void *target, uint8_t tests);
 
 
@@ -45,15 +48,12 @@ inline void accessWithfence(void *p)
 
 inline uint64_t timeAccess(void *p)
 {
-  volatile uint64_t time;
-
+  uint64_t time;
   asm volatile (
-    "fence                 \n"
-    "rdcycle a0            \n"
-    "lb %1, 0(%0)          \n"
-    "fence                 \n"
-    "rdcycle %1            \n"
-    "sub %1, %1, a0        \n"
+    "rdcycle t1            \n"
+    "lb %0, 0(%1)          \n"
+    "rdcycle %0            \n"
+    "sub %0, %0, t1        \n"
     : "=r"(time)                // output
     : "r"(p)                    // input
     : "a0");                    // clobber registers
@@ -82,6 +82,14 @@ inline uint8_t clcheck_f(void *p)
   asm volatile ("fence");
   return (*(volatile uint64_t *)(CSTATE_ADDR));
 }
+
+uint8_t accl2hit(void *p)
+{
+  //return clcheck_f(p);
+  if(timeAccess(p) < THRL2MISS) return 1;
+  return 0;
+};
+
 
 uint16_t evset_test(void *target, uint8_t tests) {
   uint8_t  i;

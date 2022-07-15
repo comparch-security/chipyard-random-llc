@@ -11,6 +11,7 @@ cacheBlock_t*    target[2];
 cacheBlock_t*    probe;
 uint32_t   evsize;
 uint8_t    configs;
+uint8_t    failed;
 uint16_t   fails[3] ;
 uint8_t    speed;
 uint32_t   accesses[3] ;
@@ -56,51 +57,56 @@ int main() {
 
   speed = 0;
 
-  for(configs = 0; configs < 9; configs++) {
-    //regeneate hkey
-    atdect_config0(1, 1, 1, 1);
-    probe = (cacheBlock_t*)TEST_START;
-    for(i = 0; i < 2*BLKS; i++) access((void *)probe++);
+  for(configs = 0; ; configs = 0) {
+    for( ; configs < 9; configs++) {
+      //regeneate hkey
+      atdect_config0(1, 1, 1, 1);
+      probe = (cacheBlock_t*)TEST_START + (2*BLKS);
+      for(i = 0; i < 2*BLKS; i++) access((void *)probe++);
 
-    if(configs == 0) { enath = 0;  eneth = 0; enzth   = 0; ath =        0; eth =     0*BLKS; zth = 5; period =   4096; }
-    if(configs == 1) {          ;  eneth = 1;            ;               ; eth = 16*10*BLKS;        ;                ; }
-    if(configs == 2) {          ;           ;            ;               ; eth =  8*10*BLKS;        ;                ; }
-    if(configs == 3) {          ;           ;            ;               ; eth =  4*10*BLKS;        ;                ; }
-    if(configs == 4) {          ;           ;            ;               ; eth =  2*10*BLKS;        ;                ; }
-    if(configs == 5) {          ;           ;            ;               ; eth =    10*BLKS;        ;                ; }
-    if(configs == 6) {          ;           ;            ;               ; eth =     9*BLKS;        ;                ; }
-    if(configs == 7) {          ;  eneth = 0; enzth   = 1;               ;                 ;        ;                ; }
-    if(configs == 8) {          ;  eneth = 1; enzth   = 1;               ; eth =    10*BLKS;        ;                ; }
-    atdect_config0(ath,  enath, eth, eneth);
-    atdect_config1(  5, period, zth, enzth);
-    probe = (cacheBlock_t*)TEST_START + (100*BLKS);
-    for(i = 0; i < 10*BLKS; i++) access((void *)probe++);
+      if(configs == 0) { enath = 0;  eneth = 0; enzth   = 0; ath =        0; eth =     0*BLKS; zth = 5; period =   4096; }
+      if(configs == 1) {          ;  eneth = 1;            ;               ; eth = 16*10*BLKS;        ;                ; }
+      if(configs == 2) {          ;           ;            ;               ; eth =  8*10*BLKS;        ;                ; }
+      if(configs == 3) {          ;           ;            ;               ; eth =  4*10*BLKS;        ;                ; }
+      if(configs == 4) {          ;           ;            ;               ; eth =  2*10*BLKS;        ;                ; }
+      if(configs == 5) {          ;           ;            ;               ; eth =    10*BLKS;        ;                ; }
+      if(configs == 6) {          ;           ;            ;               ; eth =     9*BLKS;        ;                ; }
+      if(configs == 7) {          ;  eneth = 0; enzth   = 1;               ;                 ;        ;                ; }
+      if(configs == 8) {          ;  eneth = 1; enzth   = 1;               ; eth =    10*BLKS;        ;                ; }
+      atdect_config0(ath,  enath, eth, eneth);
+      atdect_config1(  5, period, zth, enzth);
 
-    fails[0]    = 0; fails[1]    = 0; fails[2]    = 0;
-    accesses[0] = 0; accesses[1] = 0; accesses[2] = 0;
-    for(uint16_t tests = 0, speed = 0; tests < TESTS * 3; tests++) {
-      if(tests >=   TESTS) speed = 1;
-      if(tests >= 2*TESTS) speed = 2;
-      target[0]   = (cacheBlock_t*)TEST_TARGET;// + tests;
-      probe       = (cacheBlock_t*)TEST_START;
-      for(evsize = 0; evsize < WAYS; ) {
-        for(prepare(speed, evsize, target); clcheck_f((void *)target[1]); access((void *)probe++)) accesses[speed] ++;
-        accessWithfence((void *)target[1]);
-        evset[evsize++] = probe - 1;
+      failed      = 1;
+      fails[0]    = 0; fails[1]    = 0; fails[2]    = 0;
+      accesses[0] = 0; accesses[1] = 0; accesses[2] = 0;
+      for(uint16_t tests = 0, speed = 0; tests < TESTS * 2; tests++) {
+        speed       = tests & 0x01;
+        target[0]   = (cacheBlock_t*)TEST_TARGET - ((tests > 1) & 0xff);
+        probe       = (cacheBlock_t*)TEST_START;
+
+        //conflict test
+        for(evsize = 0; evsize < WAYS; ) {
+          for(prepare(speed, evsize, target); accl2hit((void *)target[1]); access((void *)probe++)) accesses[speed] ++;
+          accessWithfence((void *)target[1]);
+          evset[evsize++] = probe - 1;
+        }
+
+        //check
+        failed = 0;
+        //in speed 2 before test drain out first
+        if(speed == 2) for(access((void *)target[0]); accl2hit((void *)target[0]); access((void *)probe++), accesses[speed] ++);
+        for(j = 0; j < WAYS; access(evset[j++]));
+        for(j = 0; j < WAYS; access(evset[j++]));
+        for(j = 0; j < WAYS; access(evset[j++]));
+        if(evset_test((void *)target[0], 2) < 2) { failed = 1; fails[speed] ++;}
       }
 
-      //check
-      //in speed 2 before test drain out first
-      if(speed == 2) for(access((void *)target[0]); clcheck_f((void *)target[0]); access((void *)probe++), accesses[speed] ++);
-      if(evset_test((void *)target[0], 2) < 2) fails[speed] ++;
+      accesses[0] = accesses[0]/TESTS;
+      accesses[1] = accesses[1]/TESTS;
+      accesses[2] = accesses[2]/TESTS;
+      //kprintln("config  slow fails aver_acc fast fails aver_acc faster fails aver_acc");
+      kprintln(" %d             %d      %d          %d      %d            %d       %d",
+                configs,  fails[0], accesses[0], fails[1], accesses[1], fails[2], accesses[2]);
     }
-
-    accesses[0] = accesses[0]/TESTS;
-    accesses[1] = accesses[1]/TESTS;
-    accesses[2] = accesses[2]/TESTS;
-    //kprintln("config  slow fails aver_acc fast fails aver_acc faster fails aver_acc");
-    kprintln(" %d             %d      %d          %d      %d            %d       %d",
-              configs,  fails[0], accesses[0], fails[1], accesses[1], fails[2], accesses[2]);
   }
-  while(1);
 }
