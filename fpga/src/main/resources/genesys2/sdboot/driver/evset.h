@@ -56,7 +56,7 @@ inline uint64_t timeAccess(void *p)
     "sub %0, %0, t1        \n"
     : "=r"(time)                // output
     : "r"(p)                    // input
-    : "a0");                    // clobber registers
+    : "t1");                    // clobber registers
 
   return time;
 }
