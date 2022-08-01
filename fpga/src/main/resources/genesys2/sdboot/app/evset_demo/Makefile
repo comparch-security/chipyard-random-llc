@@ -1,17 +1,20 @@
 # RISCV environment variable must be set
 CUR_DIR := $(dir $(abspath $(lastword $(MAKEFILE_LIST))))
-BROM_DIR := $(CUR_DIR)/..
+BROM_DIR := $(CUR_DIR)/../..
 BUILD_DIR  := $(CUR_DIR)/build
 DRIVER_DIR := $(BROM_DIR)/driver
+LIST_DIR   := $(CUR_DIR)/list
+UTILS_DIR  := $(CUR_DIR)/utils
 
 CC=$(RISCV)/bin/riscv64-unknown-linux-gnu-gcc
 OBJCOPY=$(RISCV)/bin/riscv64-unknown-linux-gnu-objcopy
 OBJDUMP=$(RISCV)/bin/riscv64-unknown-linux-gnu-objdump
-CFLAGS= -static -lpthread -g -O2 -fvisibility=hidden -s -I$(BROM_DIR)/include -I$(DRIVER_DIR)
+##CFLAGS= -lpthread -g -O2 -I$(LIST_DIR)/ -I$(UTILS_DIR)/ -I$(BROM_DIR)/include -I$(DRIVER_DIR)
+CFLAGS= -lpthread -g -O2 -static -fvisibility=hidden -s -I$(LIST_DIR)/ -I$(UTILS_DIR)/ -I$(BROM_DIR)/include -I$(DRIVER_DIR)
 
-TARGETS = led pfc atdect autoSPEC
+TARGETS = evset_threshold evset_ge_postern evset_ct_postern evset_ppp_postern
 
-c_source+= $(DRIVER_DIR)/pfc.c $(DRIVER_DIR)/pfc.h
+c_source = $(UTILS_DIR)/cache_utils.c $(UTILS_DIR)/misc_utils.c
 
 RISCV_FILES =  $(addsuffix .riscv, $(TARGETS))
 DUMP_FILES  =  $(addsuffix .dump,  $(TARGETS))
