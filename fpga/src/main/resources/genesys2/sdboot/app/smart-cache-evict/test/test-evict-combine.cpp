@@ -40,5 +40,6 @@ int main() {
     printf("trials %d sucesses: %d keep: %d result: %d, way=%d\n", iter, succ, keep, rv, way);
   }
   printf("the predicted way = %d\n", way);
+  close_cfg();
   return 0;
 }

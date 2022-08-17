@@ -277,8 +277,8 @@ void main(int argc, char **argv) {
     sched_yield();
   }
 
-  close(dev_fd);
   munmap(l2ctrl_base, L2_CTRL_SIZE  );
-  munmap(dram_base,   DRAM_TEST_ADDR);
+  munmap(dram_base,   DRAM_TEST_SIZE);
+  close(dev_fd);
   return;
 }

@@ -90,9 +90,7 @@ void traverse_list_ran(elem_t *ptr) {
     for(int i=0; i<vs; i++) {
       if(vec[i]) {
         do {
-          time = rdtscfence();
-          maccess_fence (vec[i]);
-          delay = rdtscfence() - time;
+          delay = maccess_time(vec[i]);
         } while (delay > CFG.flush_low);
       }
     }

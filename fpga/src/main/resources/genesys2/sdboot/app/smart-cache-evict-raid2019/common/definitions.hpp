@@ -3,7 +3,6 @@
 
 #define SZ_CL  64
 #define SZ_PG  4096
-#define DRAM_TEST_ADDR 0X90000000
 
 typedef struct elem {
   struct elem *next;
@@ -30,11 +29,8 @@ struct config {
   bool findallcolors;
   bool findallcongruent;
   bool verify;
-  void (*traverse)(elem_t *);       // list traver function
   int pool_size;                    // the size of the element pool
   int elem_size;                    // size of an element
-  int  dev_mem_fd;
-  char *l2ctrl_base;
   char *pool_root;                  // base memory address of the pool
   char *pool_roof;                  // max memory address of the pool
   elem *pool;                       // pointer of the pool
@@ -43,7 +39,6 @@ struct config {
 extern struct config CFG;
 extern void init_cfg();
 extern void dump_cfg();
-extern void close_cfg();
 
 extern elem_t *allocate_list(int ltsz);
 extern void free_list(elem_t *l);

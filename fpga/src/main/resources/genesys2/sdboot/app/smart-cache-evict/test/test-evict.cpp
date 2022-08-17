@@ -2,8 +2,10 @@
 #include "cache/algorithm.hpp"
 #include "util/random.hpp"
 #include <cstdio>
+#include <unistd.h>
 
 int main() {
+  printf("PID %d\n", getpid());
   init_cfg();
   randomize_seed();
   int way = 32;
@@ -14,6 +16,7 @@ int main() {
     elem_t *candidate = allocate_list(csize);
     elem_t *victim = allocate_list(1);
     calibrate(victim);
+    printf("calibrate_done\n");
     while(!test_tar(candidate, victim)) {
       free_list(candidate);
       free_list(victim);
@@ -37,5 +40,6 @@ int main() {
     printf("trials %d sucesses: %d keep: %d result: %d, way=%d\n", iter, succ, keep, rv, way);
   }
   printf("the predicted way = %d\n", way);
+  close_cfg();
   return 0;
 }

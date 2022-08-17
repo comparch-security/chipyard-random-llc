@@ -59,7 +59,7 @@ int main(int argc, char **argv) {
                                    printf("state %d\n", clcheck_f((void *)target));
   accessWithfence((void *)target); printf("state %d\n", clcheck_f((void *)target));
   clflush_f((void *)target);       printf("state %d\n", clcheck_f((void *)target));
-
+  /*
  accessWithfence((void *)dram_base);
  accessWithfence((void *)dram_base2);
 
@@ -69,7 +69,7 @@ int main(int argc, char **argv) {
   printf("%p/%p\n", &dram_base,   rte_mem_virt2phy(&dram_base));
   printf("%p/%p\n", &dram_base2,  rte_mem_virt2phy(&dram_base2));
   for(cacheBlock_t* p = (cacheBlock_t*)dram_base; i < 32; p = p + 64, i++) printf("[%p/%p]\n", p, rte_mem_virt2phy(p));
-
+  */
   accesses = 0;
   while(1) {
     for(evsize = 0; evsize < reqevsize; ) {
@@ -99,10 +99,10 @@ int main(int argc, char **argv) {
       if(clcheck_f((void *)target) == 0) break;
     }
     for(i = 0; i < evsize; i++) printf("%d : %p\n",i, evset[i]);
-    close(dev_fd);
     munmap(gpio_base,   GPIO_CTRL_SIZE);
     munmap(l2ctrl_base, L2_CTRL_SIZE  );
     munmap(dram_base,   DRAM_TEST_ADDR);
+    close(dev_fd);
     printf("wrong\n"); return 0;
   }
   printf("accesses %d\n", accesses);
@@ -236,8 +236,8 @@ int main(int argc, char **argv) {
   }
   printf(" %d \n", time[1]);
 
-  close(dev_fd);
   munmap(gpio_base,   GPIO_CTRL_SIZE);
   munmap(l2ctrl_base, L2_CTRL_SIZE  );
-  munmap(dram_base,   DRAM_TEST_ADDR);
+  munmap(dram_base,   DRAM_TEST_SIZE);
+  close(dev_fd);
 }

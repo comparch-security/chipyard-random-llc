@@ -36,9 +36,7 @@ void calibrate(elem_t *victim) {
     maccess (victim);
     maccess (victim);
 
-    uint64_t time = rdtscfence();
-    maccess_fence (victim);
-    uint64_t delta = rdtscfence() - time;
+    uint64_t delta = maccess_time(victim);
     unflushed += delta;
 
 #ifdef SCE_CACHE_CALIBRATE_HISTO
@@ -54,9 +52,7 @@ void calibrate(elem_t *victim) {
     maccess_fence (victim);
 
     flush (victim);
-    uint64_t time = rdtscfence();
-    maccess_fence (victim);
-    uint64_t delta = rdtscfence() - time;
+    uint64_t delta = maccess_time(victim);
     flushed += delta;
 
 #ifdef SCE_CACHE_CALIBRATE_HISTO
@@ -105,9 +101,6 @@ bool test_tar(elem_t *ptr, elem_t *victim) {
   int i=0, t=0;
 
   while(i<CFG.trials && t<CFG.trials*16) {
-	//maccess_write (&(victim->next), i);
-	//maccess_fence (victim);
-	//maccess_write (&(victim->next), NULL);
 	maccess (victim);
     maccess (victim);
 	maccess (victim);
@@ -124,9 +117,7 @@ bool test_tar(elem_t *ptr, elem_t *victim) {
     if((char *)victim < CFG.pool_roof - 2*CFG.elem_size)
       maccess_fence((char *)victim + 2*CFG.elem_size);
 
-	uint64_t delay = rdtscfence();
-	maccess_fence (victim);
-	delay = rdtscfence() - delay;
+	  uint64_t delay = maccess_time(victim);
     //printf("%ld ", delay);
     if(delay < CFG.flush_high) {
       latency += (float)(delay);
@@ -200,9 +191,7 @@ bool test_tar_pthread(elem_t *ptr, elem_t *victim, bool v) {
         maccess_fence (victim);
       }
       done = 0;
-      delay = rdtscfence();
-      maccess_fence (victim);
-      delay = rdtscfence() - delay;
+      delay = maccess_time(victim);
     } while(delay > CFG.flush_low / 2);
 
     thread_target = ptr;
@@ -213,9 +202,7 @@ bool test_tar_pthread(elem_t *ptr, elem_t *victim, bool v) {
     }
     done = 0;
 
-    delay = rdtscfence();
-	maccess_fence (victim);
-	delay = rdtscfence() - delay;
+	delay = maccess_time(victim);
     //printf("%ld ", delay);
     if(delay < CFG.flush_high) {
       latency += (float)(delay);
@@ -254,9 +241,7 @@ bool test_tar_lists(std::vector<elem_t *> &lists, elem_t *victim, int skip) {
     if((char *)victim < CFG.pool_roof - 2*CFG.elem_size)
       maccess_fence((char *)victim + 2*CFG.elem_size);
 
-	uint64_t delay = rdtscfence();
-	maccess_fence (victim);
-	delay = rdtscfence() - delay;
+	  uint64_t delay = maccess_time(victim);
     if(delay < CFG.flush_high) {
       latency += (float)(delay);
       i++;
@@ -280,9 +265,7 @@ bool test_arb(elem_t *ptr) {
 
     elem_t *p = ptr;
     while(p) {
-      uint64_t time = rdtscfence();
-      maccess_fence(p);
-      if(rdtscfence() - time > CFG.flush_low)
+      if(maccess_time(p) > CFG.flush_low)
         count++;
       p = p->next;
     }
