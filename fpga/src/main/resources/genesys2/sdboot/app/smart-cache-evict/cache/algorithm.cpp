@@ -16,9 +16,9 @@ bool trim_tar_ran(elem_t **candidate, elem_t *victim, int &way) {
   int retry = 0;
   int ltsz = (*candidate)->ltsz;
   int ltsz_min = ltsz;
-  int iter = 0, max_iter = ltsz > 50000 ? 500 : (ltsz > 10000 ? 2000 : (ltsz > 1000 ? 20000 : 200000));
+  int iter = 0, max_iter = 500;
   int level = 0, rblevel = 0;
-  while(ltsz > 4) {
+  while(ltsz > 32) {
     int step = ltsz > way ? ltsz / way : 1;
     iter++;
     stack[stack_write] = pick_from_list(candidate, step);
@@ -34,10 +34,11 @@ bool trim_tar_ran(elem_t **candidate, elem_t *victim, int &way) {
         //printf("%d (%d,%d,%d) %d\n", ltsz, level, iter, level-rblevel-1, retry);
         //max_iter += level*4;
         rblevel = level;
-        iter = 0;
+        //iter = 0;
         ltsz_min = ltsz;
       }
       retry = 0;
+      printf("\b\b  \rltsz %d  ", ltsz); fflush(stdout);
     } else {
       *candidate = append_list(*candidate, stack[stack_write]);
       if(iter > max_iter) {
@@ -63,7 +64,6 @@ bool trim_tar_ran(elem_t **candidate, elem_t *victim, int &way) {
       }
     }
   }
-
   // housekeeping
   while(CFG.rollback && stack_read != stack_write) {
     free_list(stack[stack_read]);

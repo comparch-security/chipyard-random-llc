@@ -34,6 +34,8 @@ struct config {
   int pool_size;                    // the size of the element pool
   int elem_size;                    // size of an element
   int  dev_mem_fd;
+  int  self_pagemap_fd;
+  int  pagesize;
   char *l2ctrl_base;
   char *pool_root;                  // base memory address of the pool
   char *pool_roof;                  // max memory address of the pool
@@ -44,6 +46,7 @@ extern struct config CFG;
 extern void init_cfg();
 extern void dump_cfg();
 extern void close_cfg();
+extern void* virt2phy(const void *virtaddr);
 
 extern elem_t *allocate_list(int ltsz);
 extern void free_list(elem_t *l);

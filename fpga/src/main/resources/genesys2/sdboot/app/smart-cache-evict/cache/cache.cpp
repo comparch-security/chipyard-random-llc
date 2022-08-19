@@ -8,6 +8,9 @@
 #include <atomic>
 #include <mutex>
 
+#include <unistd.h>
+
+
 //#define SCE_CACHE_CALIBRATE_HISTO
 
 #ifdef SCE_CACHE_CALIBRATE_HISTO
@@ -19,6 +22,10 @@
 void calibrate(elem_t *victim) {
   float unflushed = 0.0;
   float flushed = 0.0;
+  flush(virt2phy(victim));
+  flush(virt2phy(victim));
+  printf("L2MISS_%d/L1HIT_%d\n", maccess_time(CFG.pool_root), maccess_time(CFG.pool_root));
+  fflush(stdout);
 
 #ifdef SCE_CACHE_CALIBRATE_HISTO
   uint32_t stat_histo_unflushed = init_histo_stat(20, CFG.calibrate_repeat);
@@ -51,7 +58,8 @@ void calibrate(elem_t *victim) {
     maccess (victim);
     maccess_fence (victim);
 
-    flush (victim);
+    flush ((void *)virt2phy(victim));
+    flush ((void *)virt2phy(victim));
     uint64_t delta = maccess_time(victim);
     flushed += delta;
 
@@ -93,7 +101,7 @@ void calibrate(elem_t *victim) {
     outfile.close();
   }
 #endif
-
+  printf("calibrate_done CFG.flush_low %d CFG.flush_high %d\n", CFG.flush_low, CFG.flush_high);
 }
 
 bool test_tar(elem_t *ptr, elem_t *victim) {
@@ -167,8 +175,13 @@ void init_threads() {
   done = 0;
   thread_target = NULL;
   for(int i=0; i<CFG.scans; i++) {
-    std::thread t(traverse_thread);
-    t.detach();
+    /*std::thread t(traverse_thread);
+    printf("traverse_thread ID %ld joinable %d\n", t.get_id(), t.joinable());
+    t.detach();*/
+    pthread_t pthID;
+    int err = pthread_create(&pthID, NULL, (void* (*)(void *)) &traverse_thread, NULL);
+    printf("traverse_thread_%d err %d pid %ld\n", i, err, pthID);
+    if(err!=0) exit(0);
   }
 }
 
@@ -193,11 +206,11 @@ bool test_tar_pthread(elem_t *ptr, elem_t *victim, bool v) {
       done = 0;
       delay = maccess_time(victim);
     } while(delay > CFG.flush_low / 2);
-
     thread_target = ptr;
     int ntasks = CFG.scans;
     tasks = v ? 7 : ntasks;
     while(tasks != 0 && done != ntasks) {
+      sched_yield();
       thread_target = ptr;
     }
     done = 0;
@@ -277,10 +290,12 @@ float evict_rate(int ltsz, int trial) {
   float rate = 0.0;
   for(int i=0; i<trial; i++) {
     elem_t *ev_list = allocate_list(ltsz);
+    elem_t *victim  = allocate_list(1);
     calibrate(ev_list);
-    bool res = test_tar(ev_list->next, ev_list);
+    bool res = test_tar(ev_list, victim);
     if(res) rate += 1.0;
     free_list(ev_list);
+    free_list(victim);
   }
   return rate / trial;
 }

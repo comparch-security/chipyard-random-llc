@@ -5,10 +5,10 @@
 #include <unistd.h>
 
 int main() {
-  printf("PID %d\n", getpid());
+  printf("\rmain PID %d\n", getpid());
   init_cfg();
   randomize_seed();
-  for(int i=10000; i<500000; i+=10000)
+  for(int i=10000; i<500000; i+=1000)
     printf("%i:\t%f\n", i, evict_rate(i, 40));
   close_cfg();
   return 0;

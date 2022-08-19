@@ -39,9 +39,20 @@ inline void maccess(void* p) {
 }
 
 inline uint64_t maccess_time(void* p) {
-  uint64_t delay = 80;
-  if(clcheck_f(p)) delay = 40;
+  /*uint64_t delay = 80;
+  if(clcheck_f(p)) delay = 4;
   __asm__ volatile ("" :: "r"(*(uint8_t*)p));
+  */
+  uint64_t delay;
+  asm volatile (
+    "rdcycle t1            \n"
+    "lb %0, 0(%1)          \n"
+    "rdcycle %0            \n"
+    "sub %0, %0, t1        \n"
+    : "=r"(delay)               // output
+    : "r"(p)                    // input
+    : "t1");                    // clobber registers
+
   return delay;
 }
 

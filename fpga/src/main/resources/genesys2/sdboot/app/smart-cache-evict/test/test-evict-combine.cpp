@@ -2,14 +2,16 @@
 #include "cache/algorithm.hpp"
 #include "util/random.hpp"
 #include <cstdio>
+#include <unistd.h>
 
 int main() {
+  printf("\rmain PID %d\n", getpid());
   init_cfg();
   randomize_seed();
   init_threads();
   int way = 32;
   int succ = 0, iter = 0, keep = 0;
-  int csize = 90000;
+  int csize = 1024*20;
   int way_pre = way;
   while (keep < 5 && iter < 200) {
     elem_t *victim = allocate_list(1);

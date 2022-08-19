@@ -35,7 +35,7 @@ void init_cfg() {
   CFG_SET_ENTRY("flush_low",        CFG.flush_low,        0               )
   CFG_SET_ENTRY("flush_high",       CFG.flush_high,       0               )
   CFG_SET_ENTRY("trials",           CFG.trials,           4               )
-  CFG_SET_ENTRY("scans",            CFG.scans,            3               )
+  CFG_SET_ENTRY("scans",            CFG.scans,            2               )
   CFG_SET_ENTRY("calibrate_repeat", CFG.calibrate_repeat, 1000            )
   CFG_SET_ENTRY("retry",            CFG.retry,            true            )
   CFG_SET_ENTRY("rtlimit",          CFG.rtlimit,          64              )
@@ -62,19 +62,27 @@ void init_cfg() {
                                  MAP_SHARED,              CFG.dev_mem_fd,  L2_CTRL_ADDR);
   if(CFG.l2ctrl_base == MAP_FAILED)  { printf("L2CTRL mmap_fail!\n"); exit(1); }
 
+  CFG.self_pagemap_fd = open("/proc/self/pagemap", O_RDONLY);
+  if(CFG.self_pagemap_fd < 0) { printf("open(/proc/self/pagemap) failed\n"); exit(1); }
+
   if(!db_init) free(CFG.pool_root);
   //CFG.pool_root = (char *)malloc(CFG.pool_size * CFG.elem_size);
-  CFG.pool_root = (char *)mmap((void*)DRAM_TEST_ADDR, CFG.pool_size * CFG.elem_size, PROT_READ|PROT_WRITE,
-                               MAP_SHARED|MAP_HUGETLB, CFG.dev_mem_fd, DRAM_TEST_ADDR);
+  //CFG.pool_root = (char *)mmap((void*)DRAM_TEST_ADDR, CFG.pool_size * CFG.elem_size, PROT_READ|PROT_WRITE,
+  //                             MAP_SHARED|MAP_HUGETLB, CFG.dev_mem_fd, DRAM_TEST_ADDR);
+  CFG.pool_root = (char *)mmap(NULL, CFG.pool_size * CFG.elem_size, PROT_READ|PROT_WRITE,
+                               MAP_PRIVATE|MAP_ANONYMOUS|MAP_HUGETLB, 0, 0);
   if(CFG.pool_root == MAP_FAILED) {
     printf("Failed to allocate pool using huge pages. Use normal pages instead.\n");
-    CFG.pool_root = (char *)mmap((void*)DRAM_TEST_ADDR, CFG.pool_size * CFG.elem_size, PROT_READ|PROT_WRITE,
-                                 MAP_SHARED, CFG.dev_mem_fd, DRAM_TEST_ADDR);
+    //CFG.pool_root = (char *)mmap((void*)DRAM_TEST_ADDR, CFG.pool_size * CFG.elem_size, PROT_READ|PROT_WRITE,
+    //                             MAP_SHARED, CFG.dev_mem_fd, DRAM_TEST_ADDR);
+    CFG.pool_root = (char *)mmap(NULL, CFG.pool_size * CFG.elem_size, PROT_READ|PROT_WRITE,
+                                 MAP_PRIVATE|MAP_ANONYMOUS, 0, 0);
   }
   if(CFG.pool_root == MAP_FAILED) {
     printf("Failed to allocate pool using normal pages neither!\n");
     exit(1);
   }
+  CFG.pagesize =  getpagesize();
   CFG.pool_roof = CFG.pool_root + CFG.pool_size * CFG.elem_size;
   CFG.pool = (elem_t *)CFG.pool_root;
   elem_t *ptr = CFG.pool;
@@ -107,6 +115,13 @@ void free_list(elem_t *l) {
   CFG.pool = append_list(CFG.pool, l);
 }
 
+void* virt2phy(const void *virtaddr) {
+  long long page;
+  long long virt_pfn = (unsigned long)virtaddr / CFG.pagesize;
+  if(lseek(CFG.self_pagemap_fd, sizeof(uint64_t) * virt_pfn, SEEK_SET) == -1) return (void *)-1;
+  read(CFG.self_pagemap_fd, &page, 8);
+  return (void *)(((page & 0x7fffffffffffffULL) * CFG.pagesize) + ((unsigned long)virtaddr % CFG.pagesize));
+}
 
 void close_cfg() {
   munmap(CFG.l2ctrl_base,   L2_CTRL_SIZE  );
