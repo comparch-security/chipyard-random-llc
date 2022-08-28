@@ -8,6 +8,7 @@
 #include <cassert>
 #include <cstdio>
 #include <cstdlib>
+#include <time.h>
 
 bool trim_tar_ran(elem_t **candidate, elem_t *victim, int &way) {
   std::vector<elem_t *> stack(CFG.rblimit, 0);
@@ -16,66 +17,82 @@ bool trim_tar_ran(elem_t **candidate, elem_t *victim, int &way) {
   int retry = 0;
   int ltsz = (*candidate)->ltsz;
   int ltsz_min = ltsz;
-  int iter = 0, max_iter = 500;
-  int level = 0, rblevel = 0;
-  while(ltsz > 32) {
-    int step = ltsz > way ? ltsz / way : 1;
+  int iter = 0, iterAll = 0, max_iter = 0;
+  int level = 0, rblevel = 0, rbacks = 0;
+  clock_t    start_time = clock();
+  while(ltsz > CFG.cache_way) {
+    max_iter = ltsz > 50000 ? 50 : (ltsz > 10000 ? 500 : (ltsz > 1000 ? 4000 : 20000));
+    int step = ltsz / (CFG.cache_way + 0);
+    if(step == 0) step = 1;
     iter++;
+    iterAll++;
     stack[stack_write] = pick_from_list(candidate, step);
+    //if(test_tar(*candidate, victim)) {
     if(test_tar_pthread(*candidate, victim, false)) {
       ltsz -= step;
       stack_write = (stack_write + 1) % CFG.rblimit;
       level++;
       if(stack_read == stack_write) {
+        assert(stack[stack_read] != NULL);
         free_list(stack[stack_read]);
+        stack[stack_read] = NULL;
         stack_read = (stack_read + 1) % CFG.rblimit;
       }
       if(ltsz < ltsz_min) {
-        //printf("%d (%d,%d,%d) %d\n", ltsz, level, iter, level-rblevel-1, retry);
+        printf("\b\b\b\b\b\b      \r");
+        printf("%d (%d,%d,%d) %d ", ltsz, level, iter, level-rblevel-1, retry);
+        fflush(stdout);
         //max_iter += level*4;
         rblevel = level;
-        //iter = 0;
+        iter = 0;
         ltsz_min = ltsz;
       }
       retry = 0;
-      printf("\b\b  \rltsz %d  ", ltsz); fflush(stdout);
     } else {
       *candidate = append_list(*candidate, stack[stack_write]);
-      if(iter > max_iter) {
-        printf("failed with iteration %d > %d! ltsz = %d\n", iter, max_iter, ltsz_min);
+      if(CFG.timelimit != 0 && (clock() - start_time) > CFG.timelimit) {
+        printf("timeOut!");
         break;
-      } else if(CFG.retry && retry < CFG.rtlimit)
+      } else if(iter > max_iter) {
+        printf("failed with iteration!");
+        break;
+      } else if(CFG.retry && retry < CFG.rtlimit) {
         retry++;
-      else if(ltsz > way + 1 && CFG.rollback && stack_read != stack_write) {
+      } else if(ltsz > CFG.cache_way + 1 && CFG.rollback && stack_read != stack_write) {
         int max_rb = (stack_write < stack_read)
           ? stack_write + CFG.rblimit - stack_read
           : stack_write - stack_read;
         for(int r=0; r < 1 + max_rb/8; r++) {
           stack_write = (stack_write + CFG.rblimit - 1) % CFG.rblimit;
           level--;
+          assert(stack[stack_write] != NULL);
           ltsz += stack[stack_write]->ltsz;
           *candidate = append_list(*candidate, stack[stack_write]);
+          stack[stack_write] = NULL;
+          rbacks++;
         }
         if(rblevel > level) rblevel = level;
         retry = 0;
       } else {
-        printf("finished with maximal rollback! ltsz = %d\n", ltsz_min);
+        printf("finished with maximal rollback!");
         break;
       }
     }
   }
+  printf("(%d %d %d %d %d %d %d)\n", iter, iterAll, ltsz_min, ltsz, rbacks, stack_write, stack_read);
   // housekeeping
   while(CFG.rollback && stack_read != stack_write) {
     free_list(stack[stack_read]);
     stack_read = (stack_read + 1) % CFG.rblimit;
   }
 
-  if(ltsz <= way + 1) {
-    //printf("success with way %d\n", ltsz);
-    //printf("targeted victim: 0x%016lx\n", (uint64_t)victim);
-    //print_list(*candidate);
-    if(way > ltsz)      way = (ltsz + way)/2;
-    else if(way < ltsz) way = ltsz;
+  way = ltsz_min;
+  if(ltsz <= CFG.cache_way + 1) {
+    printf("success with way %d\n", ltsz);
+    printf("targeted victim: 0x%016lx\n", (uint64_t)victim);
+    print_list(*candidate);
+    //if(way > ltsz)      way = (ltsz + way)/2;
+    //else if(way < ltsz) way = ltsz;
     return true;
   } else
     return false;
@@ -171,7 +188,8 @@ bool trim_tar_combined_ran(elem_t **candidate, elem_t *victim, int &way, int csi
       printf("find candidate set");
       do {
         *candidate = allocate_list(csize);
-        if(!test_tar_pthread(*candidate, victim, false)) {
+        if(!test_tar(*candidate, victim)) {
+        //if(!test_tar_pthread(*candidate, victim, false)) {
           free_list(*candidate);
           printf(".");
           *candidate = NULL;

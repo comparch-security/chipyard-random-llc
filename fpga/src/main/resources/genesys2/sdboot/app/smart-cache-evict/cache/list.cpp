@@ -15,6 +15,14 @@ void traverse_list_1(elem_t *ptr) {
   }
 }
 
+void traverse_list_1_r(elem_t *ptr) {
+  if(ptr) ptr = ptr->tail;
+  while(ptr) {
+    maccess(ptr);
+    ptr = ptr->prev;
+  }
+}
+
 void traverse_list_2(elem_t *ptr) {
   while(ptr) {
     maccess(ptr);
@@ -137,7 +145,7 @@ elem_t *pick_from_list(elem_t **pptr, int pksz) {
   int ltsz = (*pptr)->ltsz;
   std::set<int> pick_set;
   while(pick_set.size() < pksz) {
-    pick_set.insert(random_fast() % ltsz);
+    pick_set.insert(rand() % ltsz);
   }
 
   int index = 0;

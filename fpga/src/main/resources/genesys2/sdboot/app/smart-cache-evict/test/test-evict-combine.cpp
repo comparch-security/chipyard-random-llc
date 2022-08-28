@@ -9,14 +9,14 @@ int main() {
   init_cfg();
   randomize_seed();
   init_threads();
-  int way = 32;
+  int way = 16;
   int succ = 0, iter = 0, keep = 0;
   int csize = 1024*20;
   int way_pre = way;
+  if(CFG.elem_size == SZ_PG) csize = 400;
   while (keep < 5 && iter < 200) {
     elem_t *victim = allocate_list(1);
     elem_t *candidate = NULL;
-    calibrate(victim);
     bool rv = trim_tar_combined_ran(&candidate, victim, way, csize, 600, 11);
     int m_way = way;
     if(rv) {

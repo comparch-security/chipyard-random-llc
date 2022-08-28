@@ -16,6 +16,7 @@ struct config {
   int candidate_size;               // number of candidate cache lines
   int cache_size;                   // size if the cache in bytes
   int cache_way;                    // number of ways
+  int cache_set;                    // number of sets
   int cache_slices;                 // number of LLC slices
   int flush_low;                    // the latency lower bound of considering as evicted
   int flush_high;                   // the latency higher bound of considering as evicted
@@ -26,6 +27,7 @@ struct config {
   int rtlimit;                      // limit of retry for a constant size
   bool rollback;
   int rblimit;                      // depth of rollbacks
+  int timelimit;
   bool ignoreslice;
   bool findallcolors;
   bool findallcongruent;

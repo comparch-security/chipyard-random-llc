@@ -22,52 +22,38 @@
 void calibrate(elem_t *victim) {
   float unflushed = 0.0;
   float flushed = 0.0;
-  flush(virt2phy(victim));
-  flush(virt2phy(victim));
-  printf("L2MISS_%d/L1HIT_%d\n", maccess_time(CFG.pool_root), maccess_time(CFG.pool_root));
-  fflush(stdout);
+  float l1fl2uf = 0.0;
+  int l2hit=0, l2miss=0;
+  void *victimphy = (void *)virt2phy(victim);
 
 #ifdef SCE_CACHE_CALIBRATE_HISTO
   uint32_t stat_histo_unflushed = init_histo_stat(20, CFG.calibrate_repeat);
   uint32_t stat_histo_flushed = init_histo_stat(40, CFG.calibrate_repeat);
 #endif
-  
-  maccess (victim);
-  maccess (victim);
-  maccess (victim);
-  maccess_fence (victim);
 
+  sched_yield();
   for (int i=0; i<CFG.calibrate_repeat; i++) {
     maccess (victim);
-    maccess (victim);
-    maccess (victim);
-    maccess (victim);
+    unflushed += maccess_time(victim);
 
-    uint64_t delta = maccess_time(victim);
-    unflushed += delta;
+    flush (victimphy);  flush (victimphy);
+    flushed += maccess_time(victim);
 
-#ifdef SCE_CACHE_CALIBRATE_HISTO
-    record_histo_stat(stat_histo_unflushed, (float)(delta));
-#endif
-  }
-  unflushed /= CFG.calibrate_repeat;
+    maccess (victim); maccess_fence (victim);
+    flushl1 (victimphy); flushl1 (victimphy);
+    l1fl2uf += maccess_time(victim);
 
-  for (int i=0; i<CFG.calibrate_repeat; i++) {
-    maccess (victim);
-    maccess (victim);
-    maccess (victim);
-    maccess_fence (victim);
-
-    flush ((void *)virt2phy(victim));
-    flush ((void *)virt2phy(victim));
-    uint64_t delta = maccess_time(victim);
-    flushed += delta;
+    l2hit += maccess_check(victim, victimphy);
+    flush (victimphy); flush (victimphy);
+    if(maccess_check(victim, victimphy)==0) l2miss++;
 
 #ifdef SCE_CACHE_CALIBRATE_HISTO
     record_histo_stat(stat_histo_flushed, (float)(delta));
 #endif
   }
-  flushed /= CFG.calibrate_repeat;
+  unflushed /= CFG.calibrate_repeat;
+  flushed   /= CFG.calibrate_repeat;
+  l1fl2uf   /= CFG.calibrate_repeat;
 
 #ifdef SCE_CACHE_CALIBRATE_HISTO
   {
@@ -89,10 +75,8 @@ void calibrate(elem_t *victim) {
   }
 #endif
 
-  assert(flushed > unflushed);
-  CFG.flush_low = (int)((2.0*flushed + 1.5*unflushed) / 3.5);
+  CFG.flush_low = (int)((2.0*flushed + 1.5*l1fl2uf) / 3.5);
   CFG.flush_high  = (int)(flushed * 1.5);
-  //printf("calibrate: (%f, %f) -> [%d : %d]\n", flushed, unflushed, CFG.flush_high, CFG.flush_low);
 
 #ifdef SCE_CACHE_CALIBRATE_HISTO
   {
@@ -101,20 +85,24 @@ void calibrate(elem_t *victim) {
     outfile.close();
   }
 #endif
-  printf("calibrate_done CFG.flush_low %d CFG.flush_high %d\n", CFG.flush_low, CFG.flush_high);
+  printf("calibrate_done l2hit %d l2miss %d flushed %d l1fl2uf %d unflushed %d CFG.flush_low %d CFG.flush_high %d\n",
+         l2hit, l2miss, (int)flushed, (int)(l1fl2uf), (int)unflushed, CFG.flush_low, CFG.flush_high);
+  assert(flushed > unflushed);
 }
 
 bool test_tar(elem_t *ptr, elem_t *victim) {
   float latency = 0.0;
   int i=0, t=0;
+  void *victimphy = (void *)virt2phy(victim);
 
+  sched_yield();
   while(i<CFG.trials && t<CFG.trials*16) {
-	maccess (victim);
+	  maccess (victim);
     maccess (victim);
-	maccess (victim);
+	  maccess (victim);
     maccess_fence (victim);
 
-	for(int j=0; j<CFG.scans; j++) {
+	  for(int j=0; j<CFG.scans; j++) {
       //traverse_list_param(ptr, 2, 2, 1);
       traverse_list_rr(ptr);
     }
@@ -126,7 +114,6 @@ bool test_tar(elem_t *ptr, elem_t *victim) {
       maccess_fence((char *)victim + 2*CFG.elem_size);
 
 	  uint64_t delay = maccess_time(victim);
-    //printf("%ld ", delay);
     if(delay < CFG.flush_high) {
       latency += (float)(delay);
       i++;
@@ -163,8 +150,10 @@ void traverse_thread() {
     if(has_work){
       if(verify)
         traverse_list_ran(thread_target);
-      else
-        traverse_list_1(thread_target);
+      else {
+        if(rand() & 0x00) traverse_list_1_r(thread_target);
+        else              traverse_list_1  (thread_target);
+      }
       done++;
     }
   }
@@ -188,6 +177,7 @@ void init_threads() {
 bool test_tar_pthread(elem_t *ptr, elem_t *victim, bool v) {
   float latency = 0.0;
   int i=0, t=0;
+  void *victimphy = (void *)virt2phy(victim);
 
   verify = v;
   while(i<CFG.trials && t<CFG.trials*16) {
@@ -197,7 +187,6 @@ bool test_tar_pthread(elem_t *ptr, elem_t *victim, bool v) {
       thread_target = victim;
       tasks = CFG.scans;
       while(tasks != 0 && done != CFG.scans) {
-        int t = tasks, d = done;
         maccess (victim);
         maccess (victim);
         maccess (victim);
@@ -215,7 +204,9 @@ bool test_tar_pthread(elem_t *ptr, elem_t *victim, bool v) {
     }
     done = 0;
 
-	delay = maccess_time(victim);
+	  delay = maccess_time(victim);
+    //delay = (CFG.flush_low+CFG.flush_high) >> 1;
+    //if(maccess_check(victim, victimphy)) delay = CFG.flush_low >> 2;
     //printf("%ld ", delay);
     if(delay < CFG.flush_high) {
       latency += (float)(delay);

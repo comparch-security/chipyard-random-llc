@@ -15,5 +15,5 @@ uint64_t random_fast() {
 }
 
 void randomize_seed() {
-  init_seed(rdtscfence());
+  init_seed(rdcyclefence());
 }

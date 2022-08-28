@@ -6,6 +6,7 @@
 #include <fcntl.h>
 #include <unistd.h>
 #include "platform.h"
+#include "util/assembly.hpp"
 
 struct config CFG;
 using json = nlohmann::json;
@@ -29,11 +30,12 @@ void init_cfg() {
   }
 
   CFG_SET_ENTRY("candidate_size",   CFG.candidate_size,   0               )
+  CFG_SET_ENTRY("cache_set",        CFG.cache_set,        1024            )
+  CFG_SET_ENTRY("cache_way",        CFG.cache_way,        16              )
   CFG_SET_ENTRY("cache_size",       CFG.cache_size,       0               )
-  CFG_SET_ENTRY("cache_way",        CFG.cache_way,        0               )
   CFG_SET_ENTRY("cache_slices",     CFG.cache_slices,     0               )
-  CFG_SET_ENTRY("flush_low",        CFG.flush_low,        0               )
-  CFG_SET_ENTRY("flush_high",       CFG.flush_high,       0               )
+  CFG_SET_ENTRY("flush_low",        CFG.flush_low,        65              )
+  CFG_SET_ENTRY("flush_high",       CFG.flush_high,       95              )
   CFG_SET_ENTRY("trials",           CFG.trials,           4               )
   CFG_SET_ENTRY("scans",            CFG.scans,            2               )
   CFG_SET_ENTRY("calibrate_repeat", CFG.calibrate_repeat, 1000            )
@@ -45,8 +47,10 @@ void init_cfg() {
   CFG_SET_ENTRY("findallcolors",    CFG.findallcolors,    false           )
   CFG_SET_ENTRY("findallcongruent", CFG.findallcongruent, false           )
   CFG_SET_ENTRY("verify",           CFG.verify,           true            )
-  CFG_SET_ENTRY("pool_size",        CFG.pool_size,        (1<<18)         )
-  CFG_SET_ENTRY("elem_size",        CFG.elem_size,        SZ_CL           )
+  CFG_SET_ENTRY("elem_size",        CFG.elem_size,        SZ_CL           ) //SZ_PG
+  CFG_SET_ENTRY("timelimit",        CFG.timelimit,        1000*1000*1000  )
+  if(CFG.elem_size == SZ_CL)   CFG_SET_ENTRY("pool_size",        CFG.pool_size,        (1<<20)         )
+  else                         CFG_SET_ENTRY("pool_size",        CFG.pool_size,        (1<<10)         )
 
   if(db.count("traverse")) {
     int t = db["traverse"];
@@ -66,18 +70,21 @@ void init_cfg() {
   if(CFG.self_pagemap_fd < 0) { printf("open(/proc/self/pagemap) failed\n"); exit(1); }
 
   if(!db_init) free(CFG.pool_root);
-  //CFG.pool_root = (char *)malloc(CFG.pool_size * CFG.elem_size);
+
   //CFG.pool_root = (char *)mmap((void*)DRAM_TEST_ADDR, CFG.pool_size * CFG.elem_size, PROT_READ|PROT_WRITE,
-  //                             MAP_SHARED|MAP_HUGETLB, CFG.dev_mem_fd, DRAM_TEST_ADDR);
+  //                               MAP_SHARED|MAP_HUGETLB, CFG.dev_mem_fd, DRAM_TEST_ADDR);
+  //if(CFG.pool_root == MAP_FAILED) {
+  //  CFG.pool_root = (char *)mmap((void*)DRAM_TEST_ADDR, CFG.pool_size * CFG.elem_size, PROT_READ|PROT_WRITE,
+  //                               MAP_SHARED, CFG.dev_mem_fd, DRAM_TEST_ADDR);
+  //}
+
   CFG.pool_root = (char *)mmap(NULL, CFG.pool_size * CFG.elem_size, PROT_READ|PROT_WRITE,
-                               MAP_PRIVATE|MAP_ANONYMOUS|MAP_HUGETLB, 0, 0);
+                                 MAP_PRIVATE|MAP_ANONYMOUS|MAP_HUGETLB, 0, 0);
   if(CFG.pool_root == MAP_FAILED) {
-    printf("Failed to allocate pool using huge pages. Use normal pages instead.\n");
-    //CFG.pool_root = (char *)mmap((void*)DRAM_TEST_ADDR, CFG.pool_size * CFG.elem_size, PROT_READ|PROT_WRITE,
-    //                             MAP_SHARED, CFG.dev_mem_fd, DRAM_TEST_ADDR);
     CFG.pool_root = (char *)mmap(NULL, CFG.pool_size * CFG.elem_size, PROT_READ|PROT_WRITE,
                                  MAP_PRIVATE|MAP_ANONYMOUS, 0, 0);
   }
+
   if(CFG.pool_root == MAP_FAILED) {
     printf("Failed to allocate pool using normal pages neither!\n");
     exit(1);

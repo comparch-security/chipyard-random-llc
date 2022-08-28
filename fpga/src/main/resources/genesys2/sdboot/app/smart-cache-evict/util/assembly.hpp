@@ -1,6 +1,5 @@
 #ifndef SCE_ASSEMBLY_HPP
 #define SCE_ASSEMBLY_HPP
-//#define POSTERN
 
 #include <cstdint>
 #include "platform.h"
@@ -20,7 +19,7 @@ inline uint8_t clcheck_f(void *p)
   return (*(volatile uint64_t *)(L2_CTRL_ADDR + L2_BLKSTATE));
 }
 
-inline uint64_t rdtscfence() {
+inline uint64_t rdcyclefence() {
   uint64_t time;
 
   __asm__ volatile (
@@ -39,10 +38,6 @@ inline void maccess(void* p) {
 }
 
 inline uint64_t maccess_time(void* p) {
-  /*uint64_t delay = 80;
-  if(clcheck_f(p)) delay = 4;
-  __asm__ volatile ("" :: "r"(*(uint8_t*)p));
-  */
   uint64_t delay;
   asm volatile (
     "rdcycle t1            \n"
@@ -52,8 +47,14 @@ inline uint64_t maccess_time(void* p) {
     : "=r"(delay)               // output
     : "r"(p)                    // input
     : "t1");                    // clobber registers
-
   return delay;
+}
+
+inline uint8_t maccess_check(void* p, void* phyadr) {
+  uint8_t hit=0;
+  if(clcheck_f(phyadr)) hit = 1;
+  __asm__ volatile ("" :: "r"(*(uint8_t*)p));
+  return hit;
 }
 
 inline void maccess_fence(void* p) {

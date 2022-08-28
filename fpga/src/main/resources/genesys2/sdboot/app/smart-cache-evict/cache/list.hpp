@@ -5,6 +5,7 @@
 #include <vector>
 
 extern void traverse_list_1(elem_t *ptr);
+extern void traverse_list_1_r(elem_t *ptr);
 extern void traverse_list_2(elem_t *ptr);
 extern void traverse_list_3(elem_t *ptr);
 extern void traverse_list_4(elem_t *ptr);
