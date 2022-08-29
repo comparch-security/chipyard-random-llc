@@ -51,4 +51,4 @@
 
 #define WINDOW_NEXT(x) ({     \
   tick_next += x;             \
-  while(rdtscp64() < tick_next);    })
+  while(rdcycle() < tick_next);    })

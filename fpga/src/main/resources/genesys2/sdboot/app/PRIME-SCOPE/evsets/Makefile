@@ -6,6 +6,7 @@ UTILS_DIR := ../utils
 ##################
 OBJDIR = obj
 CFLAGS = -I./$(OBJDIR) -fPIC -std=gnu99
+CFLAGS += -static -fvisibility=hidden -s -O3
 
 ####################
 # Files and folders

@@ -176,7 +176,7 @@ repeat_evset:
 
 void test_eviction_set_creation() {
 
-  #define MAX_RETRY 25
+  #define MAX_RETRY 0
 
   //////////////////////////////////////////////////////////////////////////////
   // Include the function macros
@@ -185,10 +185,16 @@ void test_eviction_set_creation() {
   //////////////////////////////////////////////////////////////////////////////
   // Eviction Set Construction
 
-  printf("\nTesting Eviction Set Construction Performance\n\n");
+  printf("\nTesting Eviction Set Construction Performance");
+  if(disable_already_found)  printf(" DISABLE_ALREADY_FOUND");
+  else                       printf(" ENABLE_ALREADY_FOUND");
+  if(enable_cacheline_check) printf(" ENABLE_CACHELINE_CHECK");
+  printf("\n\n");
 
-  int attempt_counter;
+  int attempt_counter, succ, fail, rv;
+  succ=0; fail=0;
   struct timespec tstart={0,0}, tend={0,0}; double timespan;
+  uint64_t timeAll=0;
 
   ////////////////////////////////////////////////////////////////////////////
   // Cache Access Thresholds
@@ -196,6 +202,13 @@ void test_eviction_set_creation() {
   uint64_t target_addr = (uint64_t)&shared_mem[0];
   int thrLLC, thrRAM, thrDET, thrL1;
   configure_thresholds(target_addr, &thrL1, &thrLLC, &thrRAM, &thrDET);
+  if(enable_debug_log) {
+    printf("\nThresholds Configured\n\n");
+    printf("\tL1/L2    : %u\n", thrL1   );
+    printf("\tLLC      : %u\n", thrLLC  );
+    printf("\tRAM      : %u\n", thrRAM  );
+    printf("\tTHRESHOLD: %u\n", thrDET  );
+  }
 
   // Only need helper for clean threshold calibration
   KILL_HELPER(); 
@@ -229,46 +242,68 @@ void test_eviction_set_creation() {
 
     clock_gettime(CLOCK_MONOTONIC, &tstart);
   repeat_evset:
-    if (PS_SUCCESS != ps_evset( evsetList_ptr,
-                                (char*)target_addr,
-                                EV_LLC,
-                                evict_mem,
-                                HUGE_PAGES_AVAILABLE,
-                                thrDET)) {
+    rv =  ps_evset( evsetList_ptr,
+                    (char*)target_addr,
+                    EV_LLC,
+                    evict_mem,
+                    HUGE_PAGES_AVAILABLE,
+                    thrDET);
+    if (rv != PS_SUCCESS) {
       if (++attempt_counter < MAX_RETRY)
         goto repeat_evset;
     }
     clock_gettime(CLOCK_MONOTONIC, &tend);
 
     timespan = time_diff_ms(tstart, tend);
-    
-    if (attempt_counter<MAX_RETRY)
-      printf(GREEN"\tSuccess. Constucted with %d retries and in %f ms\n"NC,
-        attempt_counter, timespan);
-    else
-      printf(RED"\tFail. Could not construct with %d retries\n"NC,
-        attempt_counter);
+    timeAll += timespan;
+    if (attempt_counter ==0 || attempt_counter<MAX_RETRY) {
+      succ++;
+      printf(GREEN"\r\tPID %d Success. succ/try %d/%d Constucted with %d retries and in %5.3fs aver %5.3fs"NC,
+        getpid(), succ, t+1, attempt_counter, timespan/1000, (double)timeAll/1000/(t+1));
+      if(succ<=2 || succ==10 || t==100) printf("\n");
+    }
+    else {
+      fail++;
+      printf(RED"\r\tPID %d Fail.rv %d succ/try %d/%d Could not construct aver %5.2fs"NC,
+        getpid(), rv, succ, t+1, (double)timeAll/1000/(t+1));
+      if(fail<=2 || fail==10 || t==100) printf("\n");
+    }
+    if(enable_debug_log) {
+      printf("\n\rVictim %p Eviction set addresses are: \n", (void*)target_addr); print_list(evsetList);
+    }
+    fflush(stdout);
   }
+  printf("\n");
 }
 
 
 void configure_thresholds(
   uint64_t target_addr, int* thrL1, int* thrLLC, int* thrRAM, int* thrDET) {
 
-  #define THRESHOLD_TEST_COUNT 1000
+  #define THRESHOLD_TEST_COUNT 5000
 
   int timing[10][THRESHOLD_TEST_COUNT];
   int access_time;
 
   #include "macros.h"
+  Elem target;
+  Elem *target_adr = &target;
+  uint64_t target_adr_phy = (uint64_t)virt2phy((void*)target_adr);
+  //printf("PID %d Vir:%p/Phy:%p \n", getpid(), (void*)target_adr, (void*)target_adr_phy);
 
+  //printf("PID %d Vir:%p/Phy:%p\n", getpid(), &target_addr_phy, virt2phy(&target_addr));
+  sched_yield();
   for (int t=0; t<THRESHOLD_TEST_COUNT; t++) {
-    FLUSH             (target_addr);
-    HELPER_READ_ACCESS(target_addr);
-    TIME_READ_ACCESS  (target_addr); timing[0][t] = access_time; // time0: LLC
-    FLUSH             (target_addr);
-    TIME_READ_ACCESS  (target_addr); timing[1][t] = access_time; // time1: DRAM
-    TIME_READ_ACCESS  (target_addr); timing[2][t] = access_time; // time2: L1/L2
+    //FLUSH             (target_adr_phy);
+    //HELPER_READ_ACCESS(target_adr);
+    READ_ACCESS(target_adr);
+    FLUSHL1(target_adr_phy);
+    //__asm__("nop"); __asm__("nop"); __asm__("nop"); __asm__("nop");
+    TIME_READ_ACCESS  (target_adr); timing[0][t] = access_time; // time0: LLC
+    FLUSH             (target_adr_phy);
+    //__asm__("nop"); __asm__("nop"); __asm__("nop"); __asm__("nop");
+    TIME_READ_ACCESS  (target_adr); timing[1][t] = access_time; // time1: DRAM
+    TIME_READ_ACCESS  (target_adr); timing[2][t] = access_time; // time2: L1/L2
   }
   qsort(timing[0], THRESHOLD_TEST_COUNT, sizeof(int), comp);
   qsort(timing[1], THRESHOLD_TEST_COUNT, sizeof(int), comp);
@@ -277,6 +312,7 @@ void configure_thresholds(
   *thrRAM = timing[1][(int)0.50*THRESHOLD_TEST_COUNT];
   *thrL1  = timing[2][(int)0.10*THRESHOLD_TEST_COUNT];
   *thrDET = (2*(*thrRAM) + (*thrLLC))/3;
+  *thrDET = *thrRAM-1;
 }
 
 #endif

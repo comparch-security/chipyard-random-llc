@@ -9,6 +9,7 @@ OBJDIR  = obj
 CFLAGS += -O3 -I./$(OBJDIR) 
 CFLAGS += -I$(EVSET_DIR)/$(OBJDIR)
 # CFLAGS += -Wall 
+CFLAGS += -static -fvisibility=hidden -s -O3
 
 ####################
 # Files and folders

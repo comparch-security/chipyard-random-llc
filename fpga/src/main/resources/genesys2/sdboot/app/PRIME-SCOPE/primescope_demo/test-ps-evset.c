@@ -16,38 +16,43 @@
 #include "../utils/memory_utils.h"
 #include "../utils/misc_utils.h"
 
+#include "../evsets/ps_evset.h"
+
 ////////////////////////////////////////////////////////////////////////////////
 // Memory Allocations
 
 uint64_t *shared_mem;
 volatile uint64_t *synchronization;
 volatile uint64_t *synchronization_params;
+extern   uint64_t *evict_mem;
 
 ////////////////////////////////////////////////////////////////////////////////
 // Function declarations
 
-void attacker(int test_option);
 void victim();
+void attacker_helper();
+void test_eviction_set_creation();
 
 ////////////////////////////////////////////////////////////////////////////////
 
 int main(int argc, char **argv)
 {
-  //////////////////////////////////////////////////////////////////////////////
-  // Process command line arguments
   open_devmem_selfpage();
-  int option_index=0;
   while (1) {
-
+    int option_index=0;
     static struct option long_options[] = {
-      {"primescope" , no_argument, 0, 'p' },
-      {"evset"      , no_argument, 0, 'e' },
-      {0            , 0          , 0,  0  }};
+      {"disable_already_found"    , no_argument, 0,  0},
+      {"enable_cacheline_check"   , no_argument, 0,  0},
+      {"enable_debug_log"         , no_argument, 0,  0},
+      {0                          , 0          , 0,  0}};
 
-    if (getopt_long(argc, argv, "p:e", long_options, &option_index) == -1)
+    if (getopt_long(argc, argv, "", long_options, &option_index) == -1)
       break;
-  }
 
+    if(option_index == 0) disable_already_found  = 1 ;
+    if(option_index == 1) enable_cacheline_check = 1 ;
+    if(option_index == 2) enable_debug_log       = 1 ;
+  }
   //////////////////////////////////////////////////////////////////////////////
   // Memory allocations
 
@@ -61,17 +66,15 @@ int main(int argc, char **argv)
   *shared_mem = 1;
   *synchronization = 0;
 
-  //////////////////////////////////////////////////////////////////////////////
-  // Start the threads
-
   if (fork() == 0) {
-    set_core(VICTIM_CORE, "Victim");
-    victim();
+    set_core(HELPER_CORE, "Attacker Helper");
+    attacker_helper();
     return 0;
   }
-  
-  set_core(ATTACKER_CORE, "Attacker"); 
-  attacker(option_index);
+
+  ASSERT(mem_map_shared(&evict_mem, EVICT_LLC_SIZE, HUGE_PAGES_AVAILABLE));
+  set_core(ATTACKER_CORE, "Attacker");
+  test_eviction_set_creation();
 
   //////////////////////////////////////////////////////////////////////////////
   // Memory de-allocations
@@ -81,6 +84,7 @@ int main(int argc, char **argv)
   ASSERT(var_unmap(synchronization_params));
 
   close_devmem_selfpage();
+  printf("finish test-ps-evset\n");
 
   return 0;
 }

@@ -121,7 +121,7 @@ repeat_evset:
   // Handshake, receiver telling it's ready
     // Starting in T minus WINDOW_SYNCH
   *synchronization = 0;
-  tick_start = rdtscp64(); tick_next = tick_start;
+  tick_start = rdcycle(); tick_next = tick_start;
   *synchronization_params = tick_start; *synchronization = 10;
 
   // Warm up the cache set right before we start
@@ -138,7 +138,7 @@ repeat_evset:
     ///////////////////////////
     // ODD WINDOW IS FOR PRIME
       // Prepare EV set
-    while(rdtscp64() < tick_next + PREPARE_TRIGGER){ // Be sure to stay within time budget
+    while(rdcycle() < tick_next + PREPARE_TRIGGER){ // Be sure to stay within time budget
       PRIME_COVERT();
     }
     WINDOW_NEXT(PREPARE+OFFSET+(SYMBOLS-j)*SLOT);

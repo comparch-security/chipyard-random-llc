@@ -194,31 +194,33 @@ void traverse_Intel_Core_i5_2400 (uint64_t* arr) {
 
 // 2019 | Xeon Silver  | Non-Inclusive LLC with 12 Ways | 1 Repeat
 void traverse_Intel_Xeon_Silver_4208(Elem *list)
-{
+{ 
+  /*
   // Fences at every two accesses against hardware stride prefetching [?]
-	__asm__ volatile
-	(		
-		"mfence;"
-		"movq (%%rcx), %%rcx;"
-		"movq (%%rcx), %%rcx;"
-		"mfence;"
-		"movq (%%rcx), %%rcx;"
-		"movq (%%rcx), %%rcx;"
-		"mfence;"
-		"movq (%%rcx), %%rcx;"
-		"movq (%%rcx), %%rcx;"
-		"mfence;"
-		"movq (%%rcx), %%rcx;"
-		"movq (%%rcx), %%rcx;"
-		"mfence;"
-		"movq (%%rcx), %%rcx;"
-		"movq (%%rcx), %%rcx;"
-		"mfence;"
-		"movq (%%rcx), %%rcx;"
-		"movq (%%rcx), %%rcx;"
-		: // no output
-		: "c" (list)
-		: "cc", "memory"
-	);
+  __asm__ volatile
+  (   
+    "mfence;"
+    "movq (%%rcx), %%rcx;"
+    "movq (%%rcx), %%rcx;"
+    "mfence;"
+    "movq (%%rcx), %%rcx;"
+    "movq (%%rcx), %%rcx;"
+    "mfence;"
+    "movq (%%rcx), %%rcx;"
+    "movq (%%rcx), %%rcx;"
+    "mfence;"
+    "movq (%%rcx), %%rcx;"
+    "movq (%%rcx), %%rcx;"
+    "mfence;"
+    "movq (%%rcx), %%rcx;"
+    "movq (%%rcx), %%rcx;"
+    "mfence;"
+    "movq (%%rcx), %%rcx;"
+    "movq (%%rcx), %%rcx;"
+    : // no output
+    : "c" (list)
+    : "cc", "memory"
+  );
+  */
 }
 

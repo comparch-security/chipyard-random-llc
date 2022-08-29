@@ -15,3 +15,4 @@ void traverse_list_to_n_skylake     (Elem *ptr, int n);
 void traverse_naive                 (Elem *ptr);
 void traverse_flush                 (Elem *ptr);
 void traverse_zigzag_victim         (Elem *ptr, void *victim);
+void traverse_list_fpga             (Elem *ptr);

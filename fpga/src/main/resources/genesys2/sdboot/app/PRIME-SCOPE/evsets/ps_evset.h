@@ -1,5 +1,9 @@
 #pragma once
 
+char disable_already_found;
+char enable_cacheline_check;
+char enable_debug_log;
+
 #define MAX_POOL_SIZE_HUGE  (EVICT_LLC_SIZE/LLC_PERIOD)
 #define MAX_POOL_SIZE_SMALL (EVICT_LLC_SIZE/SMALLPAGE_PERIOD) 
 #define MAX_POOL_SIZE       (((MAX_POOL_SIZE_HUGE)>(MAX_POOL_SIZE_SMALL)) ? \
@@ -14,6 +18,7 @@
 #define PS_FAIL_EXTENSION        -3
 #define PS_FAIL_REDUCTION        -4
 #define PS_FAIL_CONTDIR_EVICTION -5
+#define PS_FAIL_FINAL_TEST       -6
 
 ////////////////////////////////////////////////////////////////////////////////
 // Declaration of types

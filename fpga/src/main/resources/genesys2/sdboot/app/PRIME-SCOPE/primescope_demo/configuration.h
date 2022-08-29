@@ -44,9 +44,9 @@
   In case of a hyperthreaded machine, logical siblings can be learned, e.g.: 
   cat /sys/devices/system/cpu/cpu0/topology/thread_siblings_list 
 */
-#define ATTACKER_CORE   1
-#define HELPER_CORE     3
-#define VICTIM_CORE     5
+#define ATTACKER_CORE   0
+#define HELPER_CORE     1
+#define VICTIM_CORE     1
 
 ////////////////////////////////////////////////////////////////////////////////
 // Application Specific Configuration
@@ -66,7 +66,7 @@
   // Pick memory sizes. EVICT_LLC_SIZE is important as it defines the size of
   // guess pool, which consists of addresses potentially congruent with the target
  
-#define TEST_LEN  10
+#define TEST_LEN  1000
 #define MAX_EVSET_CONST_RETRY 25
 
 // The parameters below are for tweaking the evset construction
@@ -104,6 +104,8 @@
 #define RANDOMIZE_GUESS_POOL 1
   // The guess pool (addresses which might be congruent with the target) is
   // random. If disabled, an ordered list of addresses are used.
+
+#define RANDOMIZE_CACHE_SETINDEX 1
 
 #define IGNORE_VERY_SLOW 1
   // If an access to the target is slow, the guess might have evicted it, hence

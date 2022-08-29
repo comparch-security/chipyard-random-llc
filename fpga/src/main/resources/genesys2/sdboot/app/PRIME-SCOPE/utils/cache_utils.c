@@ -6,129 +6,128 @@
 
 #include <stdint.h>
 #include "cache_utils.h"
+#include "platform.h"
 
-////////////////////////////////////////////////////////////////////////////////
 
-inline
-void
-// Attribution: https://github.com/IAIK/flush_flush/blob/master/sc/cacheutils.h
-clflush(void *p)
+inline void clflush(void *p)
 {
-	__asm__ volatile ("clflush 0(%0)" : : "c" (p) : "rax");
+	*(volatile uint64_t *)(L2_CTRL_ADDR + L2_FLUSH64) = ((uint64_t)p << L2_CMDBITS) + 1;
 }
 
-inline
-void 
-// Attribution: https://github.com/jovanbulck/sgx-tutorial-space18/blob/master/common/cacheutils.h
-clflush_f(void *p)
+inline void clflush_f(void *p)
+{
+  __asm__ volatile ("fence");
+  *(volatile uint64_t *)(L2_CTRL_ADDR + L2_FLUSH64) = ((uint64_t)p << L2_CMDBITS) + 1;
+  __asm__ volatile ("fence");
+}
+
+inline void clflushl1(void *p)
+{ 
+  *(volatile uint64_t *)(L2_CTRL_ADDR + L2_FLUSH64) = ((uint64_t)p << L2_CMDBITS) + 2;
+}
+
+inline uint8_t clcheck(void *p)
+{ 
+  *(volatile uint64_t *)(L2_CTRL_ADDR + L2_FLUSH64) = ((uint64_t)p << L2_CMDBITS) + 3;
+  return (*(volatile uint64_t *)(L2_CTRL_ADDR + L2_BLKSTATE));
+}
+
+inline uint64_t rdcyclefence()
+{
+  uint64_t time;
+
+  __asm__ volatile (
+    "fence                 \n"
+    "rdcycle %0            \n"
+    "fence                 \n"
+    : "=r"(time)                // output
+    :                           // input
+    :);                         // clobber registers
+
+  return time;
+}
+
+inline uint64_t rdcycle()
+{
+  uint64_t time;
+
+  __asm__ volatile (
+    "rdcycle %0            \n"
+    : "=r"(time)                // output
+    :                           // input
+    :);                         // clobber registers
+
+  return time;
+}
+
+inline uint8_t maccess_check(void* p, void* phyadr)
+{
+  uint8_t hit=0;
+  if(clcheck(phyadr)) hit = 1;
+  __asm__ volatile ("" :: "r"(*(uint8_t*)p));
+  return hit;
+}
+
+inline void maccess_fence(void* p)
+{
+  __asm__ volatile ("fence");
+  __asm__ volatile ("" :: "r"(*(uint8_t*)p));
+  __asm__ volatile ("fence");
+}
+
+inline void maccess(void* p)
+{
+  __asm__ volatile ("" :: "r"(*(uint8_t*)p));
+}
+
+inline void mwrite(void *v)
 {
   asm volatile (
-    "mfence\n"
-    "clflush 0(%0)\n"
-    "mfence\n"
-    :
-    : "D" (p)
-    : "rax");
+    "fence                 \n"
+    "sb zero, 0(%0)        \n"
+    "fence                 \n"
+    :                         // output
+    : "r" (v)                 // input
+    : );                      // clobber registers
 }
 
-////////////////////////////////////////////////////////////////////////////////
-
-inline
-uint64_t
-// https://github.com/cgvwzq/evsets/blob/master/micro.h
-rdtsc()
+inline int mread(void *v)
 {
-	unsigned a, d;
-	__asm__ volatile ("cpuid\n"
-	"rdtsc\n"
-	"mov %%edx, %0\n"
-	"mov %%eax, %1\n"
-	: "=r" (a), "=r" (d)
-	:: "%rax", "%rbx", "%rcx", "%rdx");
-	return ((uint64_t)a << 32) | d;
-}
-
-// Attribution: https://cs.adelaide.edu.au/~yval/Mastik/
-uint64_t rdtscp64() {
-  uint32_t low, high;
-  asm volatile ("rdtscp": "=a" (low), "=d" (high) :: "ecx");
-  return (((uint64_t)high) << 32) | low;
-}
-
-////////////////////////////////////////////////////////////////////////////////
-
-inline
-void
-// Attribution: https://github.com/IAIK/flush_flush/blob/master/sc/cacheutils.h
-maccess(void* p)
-{
-	__asm__ volatile ("movq (%0), %%rax\n" : : "c" (p) : "rax");
-}
-
-inline 
-void 
-mwrite(void *v)
-{
+  int rv;
   asm volatile (
-    "mfence\n\t"
-    "lfence\n\t"
-    "movl $10, (%0)\n\t"
-    "mfence\n\t"
-    : 
-    : "D" (v)
-    : );
-}
-
-inline 
-int 
-// Attribution: https://cs.adelaide.edu.au/~yval/Mastik/
-mread(void *v) 
-{
-  int rv = 0;
-  asm volatile("mov (%1), %0": "+r" (rv): "r" (v):);
+    "lb %0, 0(%1)          \n"
+    : "=r"(rv)               // output
+    : "r"(v)                 // input
+    : );                     // clobber registers
   return rv;
 }
 
-inline
-int 
-// Attribution: https://cs.adelaide.edu.au/~yval/Mastik/
-time_mread(void *adrs) 
+inline int time_mread(void *adrs) 
 {
-  volatile unsigned long time;
-
+  int delay;
   asm volatile (
-    // "lfence\n"
-    "mfence\n"
-    "rdtscp\n"
-    "lfence\n"
-    "mov %%eax, %%esi\n"
-    "mov (%1), %%eax\n"
-    "rdtscp\n"
-    "sub %%esi, %%eax\n"
-    : "=&a" (time)          // output
-    : "r" (adrs)            // input
-    : "ecx", "edx", "esi"); // clobber registers
-
-  return (int) time;
+    "fence                 \n"
+    "rdcycle t1            \n"
+    "lb %0, 0(%1)          \n"
+    "rdcycle %0            \n"
+    "sub %0, %0, t1        \n"
+    : "=r"(delay)               // output
+    : "r"(adrs)                 // input
+    : "t1");                    // clobber registers
+  return delay;
 }
 
-inline
-int 
-// Attribution: https://cs.adelaide.edu.au/~yval/Mastik/ (modified)
-time_mread_nofence(void *adrs) 
+inline int time_mread_nofence(void *adrs)
 {
-  volatile unsigned long time;
-
+  int delay;
   asm volatile (
-    "rdtscp\n"
-    "movl %%eax, %%esi\n"
-    "movl (%1), %%eax\n"
-    "rdtscp\n"
-    "sub %%esi, %%eax\n"
-    : "=&a" (time)          // output
-    : "r" (adrs)            // input
-    : "ecx", "edx", "esi"); // clobber registers
-
-  return (int) time;
+    "rdcycle t1            \n"
+    "lb %0, 0(%1)          \n"
+    "rdcycle %0            \n"
+    "sub %0, %0, t1        \n"
+    : "=r"(delay)               // output
+    : "r"(adrs)                 // input
+    : "t1");                    // clobber registers
+  return delay;
 }
 

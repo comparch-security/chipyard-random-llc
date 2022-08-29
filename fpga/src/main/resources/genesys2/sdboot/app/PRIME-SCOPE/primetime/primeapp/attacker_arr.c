@@ -61,26 +61,26 @@ void test_pattern(Elem** evset, int target_index, struct prime_config conff, int
     Elem* EVC = *evset;
 
     // Perform a PRIME pattern
-    asm volatile("lfence\nmfence\n");
-    timeF = rdtsc();
+    asm volatile("fence\n");
+    timeF = rdcycle();
 
     for(r=0;r<conff.rounds;r++)
       conff.traverse(evset_array);
 
-    PRIME_TIMESPAN[it] = rdtsc()-timeF;
-    asm volatile("lfence\nmfence\n");
+    PRIME_TIMESPAN[it] = rdcycle()-timeF;
+    asm volatile("fence\n");
 
     // Determine whether the scope line (line 0) is in L1
     ACCESS_EVC();
     PRIME_TIME_A1[it] = timeSW;
 
     // Determine whether it has evicted victim line
-    asm volatile("lfence\nmfence\n");
+    asm volatile("fence\n");
     VICTIM_MEASURE(TARGET);
     PRIME_TIME_V[it] = timeVictim;
 
     // Determine whether the scope line (line 0) is the eviction candidate in the LLC
-    asm volatile("lfence\nmfence\n");
+    asm volatile("fence\n");
     ACCESS_EVC();
     PRIME_TIME_A2[it] = timeSW;
   }
@@ -211,7 +211,7 @@ try_again:
     FLUSH(TARGET); 
     READ_ACCESS(TARGET);
     for(i=0; i<3; i++) 
-      traverse_list_asm_skylake(*evset_ptr);
+      traverse_list_fpga(*evset_ptr);
     TIME_READ_ACCESS(TARGET); 
     EV_CHECK[it] = timeSW;
   }

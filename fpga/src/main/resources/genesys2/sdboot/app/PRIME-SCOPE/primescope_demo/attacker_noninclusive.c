@@ -386,18 +386,18 @@ int configure_thresholds(
     clflush_f((void*)target_addr);
     time_mread((void*)target_addr);
     time_L1[i] = time_mread((void*)target_addr);
-    traverse_list_asm_skylake(evsetList_L1);
-    traverse_list_asm_skylake(evsetList_L1);
+    traverse_list_fpga(evsetList_L1);
+    traverse_list_fpga(evsetList_L1);
     time_L2[i] = time_mread((void*)target_addr);
   #if HUGE_PAGES_AVAILABLE
-    traverse_list_asm_skylake(evsetList_L2);
-    traverse_list_asm_skylake(evsetList_L2);
-    traverse_list_asm_skylake(evsetList_L2);
-    traverse_list_asm_skylake(evsetList_L2);
+    traverse_list_fpga(evsetList_L2);
+    traverse_list_fpga(evsetList_L2);
+    traverse_list_fpga(evsetList_L2);
+    traverse_list_fpga(evsetList_L2);
   #else
-    asm volatile("lfence;mfence");
+    asm volatile("fence");
     HELPER_READ_ACCESS(target_addr);
-    asm volatile("lfence;mfence");
+    asm volatile("fence");
   #endif
     time_LLC[i] = time_mread((void*)target_addr);
     clflush_f((void*)target_addr);

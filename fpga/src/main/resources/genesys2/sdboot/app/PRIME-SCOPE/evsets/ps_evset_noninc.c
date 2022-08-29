@@ -388,7 +388,7 @@ meas_collect_cd(Elem **evset, char *victim, int *time, int test_len) {
 
 		// Access the EvSet in LLC
 		for (i=0; i<25; i++)
-			traverse_list_asm_skylake(*evset);
+			traverse_list_fpga(*evset);
 
 		// Access for page table
 		mread((void*)(victim + 222));

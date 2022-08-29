@@ -1,10 +1,13 @@
 THIS_DIR := $(dir $(abspath $(lastword $(MAKEFILE_LIST))))
+BROM_DIR := $(THIS_DIR)/../../..
+##CC = riscv64-unknown-linux-gnu-gcc
 
 ##################
 # Build directory
 ##################
 OBJDIR = obj
-CFLAGS = -I./$(OBJDIR) -fPIC
+CFLAGS = -I./$(OBJDIR) -I$(BROM_DIR)/include -fPIC
+CFLAGS += -static -fvisibility=hidden -s -O3
 
 ####################
 # Files and folders

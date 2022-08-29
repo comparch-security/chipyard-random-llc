@@ -9,4 +9,4 @@ typedef struct elem
   int          set;
   size_t       delta;
   char         pad[32]; // up to 64B
-} Elem;
+}__attribute__((aligned(64))) Elem;

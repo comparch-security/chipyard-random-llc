@@ -25,6 +25,7 @@ inline
 void
 traverse_list_asm_skylake(Elem *ptr)
 {
+/*
 	__asm__ volatile
 	(
 		"test %%rcx, %%rcx;"	
@@ -47,12 +48,14 @@ traverse_list_asm_skylake(Elem *ptr)
 		: "c" (ptr) // ptr in rcx
 		: "cc", "memory"
 	);
+*/
 }
 
 inline
 void
 traverse_list_asm_haswell(Elem *ptr)
 {
+/*
 	__asm__ volatile
 	(
 		"test %%rcx, %%rcx;"
@@ -71,12 +74,14 @@ traverse_list_asm_haswell(Elem *ptr)
 		: "c" (ptr)
 		: "cc", "memory"
 	);
+*/
 }
 
 inline
 void
 traverse_list_asm_simple(Elem *ptr)
 {
+/*
 	__asm__ volatile
 	(
 		"loop3:"
@@ -89,6 +94,7 @@ traverse_list_asm_simple(Elem *ptr)
 		: "c" (ptr)
 		: "cc", "memory"
 	);
+*/
 }
 
 inline
@@ -165,6 +171,17 @@ traverse_zigzag_victim(Elem *ptr, void *victim)
     {
         maccess (ptr);
         maccess (victim);
+        ptr = ptr->next;
+    }
+}
+
+inline
+void
+traverse_list_fpga(Elem *ptr)
+{
+	while (ptr)
+    {
+        maccess (ptr);
         ptr = ptr->next;
     }
 }

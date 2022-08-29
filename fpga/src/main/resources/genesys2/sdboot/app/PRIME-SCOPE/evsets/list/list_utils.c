@@ -116,16 +116,19 @@ list_pop(Elem **ptr)
 
 void
 print_list(Elem *ptr)
-{
+{    
+	int i = 0;
 	if (!ptr)
 	{
 		printf("(empty)\n");
 		return;
 	}
 	while (ptr != NULL)
-	{
+	{   
+		if(i==0)  printf("\t");
 		printf("%p ", (void*)ptr);
 		ptr = ptr->next;
+		if(++i==4)  { printf("\n"); i=0; }
 	}
 	printf("\n");
 }

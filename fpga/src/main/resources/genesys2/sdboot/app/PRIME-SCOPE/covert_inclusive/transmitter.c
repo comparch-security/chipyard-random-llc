@@ -45,7 +45,7 @@ void transmitter() {
     else if (*synchronization == 1) {
       // Implements "TX_READ_ACCESS" functionality in macros.h
       memread((void*)*synchronization_params); 
-      asm volatile("lfence\nmfence\n");
+      asm volatile("fence\n");
       *synchronization = 0;
     }
     else if (*synchronization == 10) {
@@ -71,13 +71,13 @@ void transmitter() {
             if (i == symbol) {
 
               #if TRANSMITTER_FENCE == 1
-                asm volatile("lfence\n");
+                asm volatile("fence\n");
               #endif
 
               memread((void*) TARGET);
 
               #if TRANSMITTER_FLUSH == 1
-                asm volatile("mfence\n");
+                asm volatile("fence\n");
                 flush_nofence((void*) TARGET);
               #endif
             }

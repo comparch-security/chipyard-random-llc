@@ -1,5 +1,16 @@
 #pragma once
 
+  #define BLOCK_OFFSET      6 // 64B cache lines
+  #define LLC_SLICES        1
+  #define LLC_WAYS          16
+  #define LLC_INDEX_BITS    (BLOCK_OFFSET + 10) // 1024 sets
+  #define LLC_PERIOD        (1 << LLC_INDEX_BITS)
+  #define LLC_SET_INDEX(x)  ({uint64_t index = ( x & ~((1 << BLOCK_OFFSET)-1)) & ((1 << LLC_INDEX_BITS)-1);index;})
+  #define SMALLPAGE_PERIOD  (1 << 12)
+  #define CACHEBLOCK_PERIOD (1 << 6)
+
+
+/*
 #ifdef LLC_INCLUSIVE 
 
   #define BLOCK_OFFSET      6 // 64B cache lines
@@ -85,3 +96,4 @@
   #define SMALLPAGE_PERIOD    (1 << 12)
 
 #endif // LLC_NONINCLUSIVE
+*/

@@ -8,6 +8,7 @@
 #include "list/list_utils.h"
 
 #include "../utils/cache_utils.h"
+#include "../utils/misc_utils.h"
 
 #ifdef LLC_INCLUSIVE
 
@@ -32,15 +33,20 @@ ps_evset(Elem **evset, char *victim, int len, uint64_t* page, int is_huge, int t
 
   Elem *evset_last = NULL;
   *evset = NULL;
-  
+  uint64_t victim_phy = (uint64_t)virt2phy((void*)victim);
+  //printf("victim V %p P %p\n", (void*)victim, (void*)victim_phy);
+
   //////////////////////////////////////////////////////////////////////////////
   // Create a guess pool
 
   uint64_t guess_pool[MAX_POOL_SIZE];
   
   int pool_size = (is_huge) ? MAX_POOL_SIZE_HUGE : MAX_POOL_SIZE_SMALL;
-
-  #if RANDOMIZE_GUESS_POOL == 0
+  #if RANDOMIZE_CACHE_SETINDEX == 1
+  for (i=0; i<pool_size; i++)  {
+    guess_pool[i] = ((uint64_t)page + ((uint64_t)victim & (CACHEBLOCK_PERIOD-1)) + i*CACHEBLOCK_PERIOD);
+  }
+  #elif RANDOMIZE_GUESS_POOL == 0
   for (i=0; i<pool_size; i++)  {
     guess_pool[i] = (is_huge) ?
       ((uint64_t)page + ((uint64_t)victim & (LLC_PERIOD-1      )) + i*LLC_PERIOD      ): 
@@ -54,6 +60,7 @@ ps_evset(Elem **evset, char *victim, int len, uint64_t* page, int is_huge, int t
       ((uint64_t)page + ((uint64_t)victim & (SMALLPAGE_PERIOD-1)) + (rand() % MAX_POOL_SIZE_SMALL)*SMALLPAGE_PERIOD);
   }
   #endif
+ 
 
   
   //////////////////////////////////////////////////////////////////////////////
@@ -67,30 +74,37 @@ extend:
 
     // Place TARGET in LLC
     maccess((void*)victim);
-    asm volatile("lfence;mfence");
+    maccess((void*)victim);
+    asm volatile("fence");
 
-    #if ENABLE_ALREADY_FOUND
-    // Place ALREADY_FOUND in LLC
-    traverse_zigzag_victim(*evset, (void*)victim); 
-    traverse_zigzag_victim(*evset, (void*)victim); 
-    #endif
+    if(disable_already_found==0) {
+      traverse_zigzag_victim(*evset, (void*)victim); 
+      traverse_zigzag_victim(*evset, (void*)victim); 
+    }
 
     // Search 
     while (try_guesses) {
 
-
       // Access guess
-      maccess((void*)guess_pool[guess_index]);
-      asm volatile("lfence");
+      //maccess((void*)guess_pool[guess_index]);
+      time_mread((void*)guess_pool[guess_index]);
+      asm volatile("fence");
 
       // Measure TARGET
+      /*
+      if(enable_cacheline_check) {
+        time = threshold+1;
+        if(maccess_check(victim, (void*)victim_phy)) time = threshold>>2;
+      } else {
+        time = time_mread((void*)victim);
+      }*/
       time = time_mread((void*)victim);
-    
+
       // If TARGET is evicted
       #if IGNORE_VERY_SLOW == 1
-      if (time>threshold-20 && time < 2*threshold) { 
+      if (time>threshold && time < 2*threshold) { 
       #else
-      if (time>threshold-20) { 
+      if (time>threshold) { 
       #endif
         try_guesses = false;
         counter_attempt = 0;
@@ -138,6 +152,13 @@ extend:
     }
     #endif
 
+  traverse_list_fpga(*evset);
+  traverse_list_fpga(*evset);
+  traverse_list_fpga(*evset);
+  traverse_list_fpga(*evset);
+  if (!ps_evset_test(evset, victim, threshold, 3, EVTEST_ALLPASS))
+    return PS_FAIL_FINAL_TEST;
+  
   return PS_SUCCESS;
 }
 
@@ -179,14 +200,6 @@ ps_evset_reduce(Elem **evset, char *victim, int len, int threshold){
   return 0; // FAIL
 }
 
-////////////////////////////////////////////////////////////////////////////////
-
-static 
-inline 
-int 
-comp(const void * a, const void * b) {
-  return ( *(uint64_t*)a - *(uint64_t*)b );
-}
 
 int 
 ps_evset_test(Elem **evset, char *victim, int threshold, int test_len, int test_method) {
@@ -197,18 +210,18 @@ ps_evset_test(Elem **evset, char *victim, int threshold, int test_len, int test_
   int i=0;
 
   // Place TARGET in LLC
-  asm volatile("lfence;mfence");
+  asm volatile("fence");
   maccess((void*)victim);
-  asm volatile("lfence;mfence");
+  asm volatile("fence");
 
   for (test=0; test<test_len; test++) {
 
     // Potential improvement: could be sped up
-    traverse_list_asm_skylake(*evset);
-    traverse_list_asm_skylake(*evset);
-    traverse_list_asm_skylake(*evset);
-    traverse_list_asm_skylake(*evset);
-    asm volatile("lfence;mfence");
+    traverse_list_fpga(*evset);
+    traverse_list_fpga(*evset);
+    traverse_list_fpga(*evset);
+    traverse_list_fpga(*evset);
+    asm volatile("fence");
 
     // Measure TARGET (and place in LLC for next iteration)
     time[test] = time_mread((void*)victim);

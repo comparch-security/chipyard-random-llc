@@ -74,9 +74,9 @@
 #define ASSERT(x) assert(x != -1)
 #define MAX(a,b) (((a)>(b))?(a):(b))
 #define MIN(a,b) (((a)>(b))?(b):(a))
-#define FENCE asm volatile ("mfence\n\t lfence\n\t");
-#define MFENCE asm volatile ("mfence\n\t");
-#define LFENCE asm volatile ("lfence\n\t");
+#define FENCE asm volatile ("fence\n");
+#define MFENCE asm volatile ("fence\n");
+#define LFENCE asm volatile ("fence\n");
 
 #define BUSY_WAIT() ({                                            \
   for (i = 30000; i>0; i--)                                       \
