@@ -3,6 +3,9 @@
 char disable_already_found;
 char enable_cacheline_check;
 char enable_debug_log;
+int  ppp_prime_len_min;
+int  ppp_prime_len_max;
+char enable_ppp_prime_clcheck;
 
 #define MAX_POOL_SIZE_HUGE  (EVICT_LLC_SIZE/LLC_PERIOD)
 #define MAX_POOL_SIZE_SMALL (EVICT_LLC_SIZE/SMALLPAGE_PERIOD) 
@@ -41,6 +44,7 @@ char enable_debug_log;
 
 #ifdef LLC_INCLUSIVE
 int  ps_evset       (Elem **evset, char *victim, int len, uint64_t* page, int is_huge, int threshold);
+int  ppp_evset      (Elem **evset, char *victim, int len, uint64_t* page, int is_huge, int threshold, int prime_len_min, int prime_len_max);
 int  ps_evset_test  (Elem **evset, char *victim, int threshold, int test_len, int test_method);
 int  ps_evset_premap(uint64_t* page);
 #endif

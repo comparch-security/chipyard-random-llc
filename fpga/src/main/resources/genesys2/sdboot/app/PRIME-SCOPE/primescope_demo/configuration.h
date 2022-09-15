@@ -66,7 +66,8 @@
   // Pick memory sizes. EVICT_LLC_SIZE is important as it defines the size of
   // guess pool, which consists of addresses potentially congruent with the target
  
-#define TEST_LEN  1000
+#define TEST_LEN   1000
+#define TIMERECORD 100
 #define MAX_EVSET_CONST_RETRY 25
 
 // The parameters below are for tweaking the evset construction
