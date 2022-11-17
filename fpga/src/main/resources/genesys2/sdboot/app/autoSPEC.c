@@ -274,7 +274,7 @@ uint64_t main (int argc, char *argv[])
          e_inst = get_pfc_inst()+inst;
          sleep(time*60);
          n_inst = get_pfc_inst();
-         while(n_inst < e_inst) { run_time = run_time+3; sleep(180);  n_inst = get_pfc_inst(); }
+         while(n_inst < e_inst) { run_time = run_time+1; sleep(60);  n_inst = get_pfc_inst(); }
          get_pfc_all(c_pfccsr);
          kill(pid, SIGKILL);
          fprintf(fp, "run_time: %d\n", run_time);

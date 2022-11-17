@@ -355,8 +355,9 @@ class AttackDetector(params: InclusiveCacheParameters) extends Module
   val evSqAvera                  = evSqSum(evSqSum.getWidth - 1, params.setBits)
   val evStdDev                   = Reg(UInt((evIntWidth + evFracWidth).W)) //Root Mean Square
   val evStdDevReci               = Reg(UInt((evIntWidth + evFracWidth).W))
+  val evOverFlow                 = Reg(Bool())
 
-  io.remap.bits.atdetec := max_emaz > Cat(io.config1.zthreshold, 0.U(emazFracWidth.W))
+  io.remap.bits.atdetec := (max_emaz > Cat(io.config1.zthreshold, 0.U(emazFracWidth.W))) || evOverFlow
 
   io.remap.valid   := false.B
   when(count_access > io.config0.athreshold && io.config0.enath)      { io.remap.valid := true.B }
@@ -380,6 +381,7 @@ class AttackDetector(params: InclusiveCacheParameters) extends Module
     max_emaz         := 0.U
     evLatch(0)       := 0.U
     evLatch(1)       := 0.U
+    evOverFlow       := false.B
     state            := s_idle
   }
   when(io.remap.fire()) {
@@ -490,6 +492,9 @@ class AttackDetector(params: InclusiveCacheParameters) extends Module
   evWriteArb.io.in(2).bits.evicts   := Mux(recordWay === 1.U, Cat(evresp(1), 0.U(evIntWidth.W)),  Cat(0.U(evIntWidth.W), evresp(0)))
   when(evWriteArb.io.out.valid) { sram_evicts.write(evWriteArb.io.out.bits.set, evWriteArb.io.out.bits.evicts) }
   evWriteArb.io.out.ready           := true.B
+  when(evWriteArb.io.in(1).valid && (evicts === UIntMax(evicts))) {
+    evOverFlow := true.B
+  }
 
   //sram_emaz: read
   emaz.io.emazread.ready            := wipeDone && !emazWriteArb.io.out.valid
