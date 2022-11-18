@@ -146,6 +146,9 @@ case class InclusiveCacheRemapParameters(
   val enableDirEntrySwaperLog  = false
   val enableDataBlockSwaperLog = false
 
+  val rtdelay  = 2
+  require(rtdelay > 0)
+
   //                remaper  x      c     a
   val rtcamen = Seq(false, false, false, false)
 

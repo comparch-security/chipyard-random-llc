@@ -229,6 +229,7 @@ class Maurice2015Hua2011Table(params: InclusiveCacheParameters) extends Module {
   val channels  = params.remap.channels
   val sets      = params.cache.sets
   val blkBits   = L2SetIdxHashFun.blkBits
+  val rtdelay   = params.remap.rtdelay
 
   val io        = new RandomTableIO(params)
   val sethash   = Module(new Maurice2015Hua2011(channels))
@@ -276,6 +277,26 @@ class Maurice2015Hua2011Table(params: InclusiveCacheParameters) extends Module {
     io.resp(ch).valid                := sethash.io.resp(ch).valid
     io.resp(ch).bits.lhset           := sethash.io.resp(ch).bits.lhset
     io.resp(ch).bits.rhset           := sethash.io.resp(ch).bits.rhset
+
+    //resp
+    require(rtdelay > 0)
+    if(rtdelay == 1) {
+      io.resp(ch).valid                := sethash.io.resp(ch).valid
+      io.resp(ch).bits.lhset           := sethash.io.resp(ch).bits.lhset
+      io.resp(ch).bits.rhset           := sethash.io.resp(ch).bits.rhset
+    } else if(rtdelay > 1) {
+      val resp_valid_delay            = Reg(Vec((rtdelay - 1), Bool()))
+      val resp_value_delay            = Reg(Vec((rtdelay - 1), new RandomTableBankResp(params.setBits)))
+      resp_valid_delay(0)            := sethash.io.resp(ch).valid
+      resp_value_delay(0).lhset      := sethash.io.resp(ch).bits.lhset
+      resp_value_delay(0).rhset      := sethash.io.resp(ch).bits.rhset
+      for(i <- 1 until rtdelay-1) {
+        resp_valid_delay(i) := resp_valid_delay(i-1)
+        resp_value_delay(i) := resp_value_delay(i-1)
+      }
+      io.resp(ch).valid              := resp_valid_delay(rtdelay - 2)
+      io.resp(ch).bits               := resp_value_delay(rtdelay - 2)
+    }
   }}
 
 }
@@ -702,6 +723,7 @@ class Remaper(params: InclusiveCacheParameters) extends Module {
   val sets     = params.cache.sets
   val blocks   = sets*ways
   val lastset  = params.cache.sets - 1
+  val rtdelay  = params.remap.rtdelay
 
   val dbreq = Module(new Queue(io.dbreq.bits, 1, pipe = false, flow = true  ))
   val rtreq = Module(new Queue(io.rtreq.bits, 1, pipe = false, flow = true  ))
@@ -892,7 +914,16 @@ class Remaper(params: InclusiveCacheParameters) extends Module {
         when( !io.deresp.bits.nop && io.deresp.bits.tail && !io.deresp.bits.evict.valid   ) {  w_dir   := true.B   }  //tail but not need evict
       }
       when( w_evictdone && io.evresp.valid                                                ) {  w_dir   := true.B   }  //wait evict done
-      when( io.rtreq.fire()                                                               ) {  w_dir   := true.B   }
+      if(rtdelay == 1) when( io.rtreq.fire()                                              ) {  w_dir   := true.B   }
+      if(rtdelay > 1) {
+        val rtreq_fire_delay  = Reg(Vec(rtdelay - 1, Bool()))
+        rtreq_fire_delay(0)  := io.rtreq.fire()
+        for(i <- 1 until rtdelay - 1) {
+          rtreq_fire_delay(i) := rtreq_fire_delay(i-1)
+        }
+        //rtreq_fire_delay(rtdelay-2) is the single before rtresp
+        when( rtreq_fire_delay(rtdelay-2)                                                 ) {  w_dir   := true.B   }
+      }
     }
     when( io.dereq.fire() ) { w_dir := false.B }
     when( io.deresp.valid && !io.deresp.bits.nop ) {
