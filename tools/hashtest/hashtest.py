@@ -9,6 +9,112 @@ import matplotlib.pyplot as plt
 import matplotlib.style as style
 import hashfun as testhash
 
+
+##Rekeying Congruent Test
+##Rekeying Congruent Test: Test HUA2011
+'''
+
+a = 0
+congruents = 0
+for i in range(0, 1000):
+    evset           = []
+    evsize          = 0
+    evset_new       = []
+    key_old         = 0
+    key_new         = 0
+    while key_old == key_new:
+        key_old         = random.randint(0, (1 << 6) - 1)
+        key_new         = random.randint(0, (1 << 6) - 1)
+    target          = random.randint(0, (1 << (31-6)) - 1)
+    target_set_old  = testhash.Hua2011WithKey(target, key_old)
+    target_set_new  = testhash.Hua2011WithKey(target, key_new)
+    for evsize in range(0, 1024):
+        while 1 == 1:
+            a = a+1
+            if(target_set_old == testhash.Hua2011WithKey(a, key_old)):
+                evset.append(a)
+                evset_new.append(testhash.Hua2011WithKey(a, key_new))
+                break
+    for j in range(0, evsize-1):
+        for k in range(j+1, evsize):
+            if evset_new[j] == evset_new[k]:
+                congruents = congruents +1
+    print(i, target, target_set_old, target_set_new, congruents/(i+1), 1/(congruents/(i+1)/(evsize*(evsize-1)/2)))
+
+
+##Rekeying Congruent Test: Test Maurice2015
+a = 0
+congruents = 0
+for i in range(0, 1000):
+    evset           = []
+    evsize          = 0
+    evset_new       = []
+    key_old         = []
+    key_new         = []
+    for j in range(0, 6):
+        key_old.append(random.randint(0, int((1 << (32 - 6)) - 1)))
+        key_new.append(random.randint(0, int((1 << (32 - 6)) - 1)))
+    target          = random.randint(0, (1 << (31-6)) - 1)
+    target_set_old  = testhash.Maurice2015Index(target, key_old)
+    target_set_new  = testhash.Maurice2015Index(target, key_new)
+    for evsize in range(0, 1024):
+        while 1 == 1:
+            a = a+1
+            if(target_set_old == testhash.Maurice2015Index(a, key_old)):
+                evset.append(a)
+                evset_new.append(testhash.Maurice2015Index(a, key_new))
+                break
+    for j in range(0, evsize-1):
+        for k in range(j+1, evsize):
+            if evset_new[j] == evset_new[k]:
+                congruents = congruents +1
+    print(i, target, target_set_old, target_set_new, congruents/(i+1), 1/(congruents/(i+1)/(evsize*(evsize-1)/2)))
+'''
+
+##Rekeying Congruent Test: Test Maurice2015Hua2011
+a = 0
+congruents = 0
+for i in range(0, 1000):
+    evset           = []
+    evsize          = 0
+    evset_new       = []
+    key_old         = []
+    key_new         = []
+    table_old       = []
+    table_new       = []
+    for j in range(0, 6):
+        key_old.append(random.randint(0, int((1 << (32 - 6)) - 1)))
+        key_new.append(random.randint(0, int((1 << (32 - 6)) - 1)))
+    '''
+    for j in range(0, 64):
+        table_old.append(j)
+        table_new.append(j)
+    random.shuffle(table_old)
+    random.shuffle(table_new)
+    '''
+    for j in range(0, 64):
+        table_old.append(random.randint(0, 63))
+        table_new.append(random.randint(0, 63))
+    print(key_old)
+    print(key_new)
+    print(table_old)
+    print(table_new)
+    target          = random.randint(0, (1 << (31-6)) - 1)
+    target_set_old  = testhash.Maurice2015Hua2011WithKeyTable(target, key_old, table_old)
+    target_set_new  = testhash.Maurice2015Hua2011WithKeyTable(target, key_new, table_new)
+    for evsize in range(0, 1024):
+        while 1 == 1:
+            a = a+1
+            if(target_set_old == testhash.Maurice2015Hua2011WithKeyTable(a, key_old, table_old)):
+                evset.append(a)
+                evset_new.append(testhash.Maurice2015Hua2011WithKeyTable(a, key_new, table_new))
+                break
+    for j in range(0, evsize-1):
+        for k in range(j+1, evsize):
+            if evset_new[j] == evset_new[k]:
+                congruents = congruents +1
+    print(i, target, target_set_old, target_set_new, congruents/(i+1), 1/(congruents/(i+1)/(evsize*(evsize-1)/2)))
+
 ##Avalanche Test
 '''
 def hamming(a, b):

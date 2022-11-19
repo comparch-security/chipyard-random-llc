@@ -194,15 +194,15 @@ def tx3(a, stages, perlist):
         result = permutationstage(xorstage(result,  width, 1), width, perlist[i])
     return result
 
-def tx3tx3tx3t(a):
-    width = 32
-    baidu = [16, 7, 20, 21, 29, 12, 28, 17, 1, 15, 23, 26, 5, 18, 31, 10, 2, 8, 24, 14, 32, 27, 3, 9, 19, 13, 30, 6, 22, 11, 4, 25]
-    AA = [permutationlist6L[0]] + [permutationlist6L[0]] + [permutationlist6L[0]] + [permutationlist6L[0]] +[permutationlist6L[0]]
-    result = tx3(a, 1,AA)
-    result = sboxstage(result, width)
-    ##result = tx3t(a, 3, aa)
+def x4(a, stages, perlist):
+    width       = 32
+    result      = permutationstage(a, width, perlist[0])
+    for i in range(0, stages):
+        result = permutationstage(xorstage(result,  width, 1), width, perlist[i])
+        result = permutationstage(xorstage(result,  width, 1), width, perlist[i])
+        result = permutationstage(xorstage(result,  width, 1), width, perlist[i])
+        result = permutationstage(xorstage(result,  width, 1), width, perlist[i])
     return result
-
 
 def tx3nt(a, stages):
     width = 32
@@ -210,7 +210,14 @@ def tx3nt(a, stages):
     AA = [permutationlist6L[0]] + [permutationlist6L[0]] + [permutationlist6L[0]] + [permutationlist6L[0]] +[permutationlist6L[0]]
     result = tx3(a, stages, AA)
     result = sboxstage(result, width)
-    ##result = tx3t(a, 3, aa)
+    return result
+
+def x4nx(a, stages):
+    width = 32
+    baidu = [16, 7, 20, 21, 29, 12, 28, 17, 1, 15, 23, 26, 5, 18, 31, 10, 2, 8, 24, 14, 32, 27, 3, 9, 19, 13, 30, 6, 22, 11, 4, 25]
+    AA = [permutationlist6L[0]] + [permutationlist6L[0]] + [permutationlist6L[0]] + [permutationlist6L[0]] +[permutationlist6L[0]]
+    result = x4(a, stages, AA)
+    result = xorstage(result, width, 1)
     return result
 
 ##print(permutationlist6L[0])
@@ -249,7 +256,21 @@ def Maurice2015Index(a, hkeys):
 def Maurice2015Hua2011(a):
     index     = Maurice2015Index(a, Maurice2015Hkeys)
     rtableOut = Maurice2015Rtable[index]
-    ##amix      = (rtableOut << 26) | a
-    amix      = (rtableOut << 10) | xorreduce(tx3nt(a, 2), 32, 10)
-    result    = tx3nt(amix, 1)
+    amix      = (rtableOut << 26) | a
+    ##amix      = (rtableOut << 10) | xorreduce(tx3nt(a, 2), 32, 10)
+    result    = xorreduce(tx3nt(amix, 3), 32, 10)
+    return result
+
+def Hua2011WithKey(a, key):
+    amix      = (key << 26) | a
+    result    = xorreduce(tx3nt(amix, 3), 32, 10)
+    ##result    = tx3nt(amix, 3) & 0x3ff
+    return result
+
+def Maurice2015Hua2011WithKeyTable(a, key, table):
+    index     = Maurice2015Index(a, key)
+    rtableOut = table[index]
+    amix      = (rtableOut << 26) | a
+    ##amix      = (rtableOut << 10) | xorreduce(tx3nt(a, 2), 32, 10)
+    result    = xorreduce(tx3nt(amix, 3), 32, 10)
     return result
