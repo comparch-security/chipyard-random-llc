@@ -9,6 +9,28 @@ import matplotlib.pyplot as plt
 import matplotlib.style as style
 import hashfun as testhash
 
+##Congruent Test
+congruents_all = 0
+congruents_max = 0
+addr_len       = 1024
+groups         = addr_len*(addr_len-1)/2
+for i in range(0, 1000):
+    congruents      = 0
+    evset           = []
+    evsize          = 0
+    key             = random.randint(0, (1 << 6) - 1)
+    addr            = random.sample(range(0, (1 << 26) - 1), addr_len)
+    for j in range(0, addr_len):
+        evset.append(testhash.Hua2011WithKey(addr[j], key))
+    for j in range(0, addr_len-1):
+        for k in range(j+1, addr_len):
+            if evset[j] == evset[k]:
+                congruents = congruents +1
+    congruents_all  = congruents_all + congruents
+    if congruents > congruents_max:
+        congruents_max = congruents
+    print(i, congruents_max, round(1/(congruents_max/groups)), 1), round(1/(congruents_all/groups/(i+1)), 1))
+exit()
 
 ##Rekeying Congruent Test
 ##Rekeying Congruent Test: Test HUA2011
