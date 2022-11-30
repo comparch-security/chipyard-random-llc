@@ -10,10 +10,11 @@ import matplotlib.style as style
 import hashfun as testhash
 
 ##Congruent Test
-congruents_all = 0
-congruents_max = 0
 addr_len       = 1024
 groups         = addr_len*(addr_len-1)/2
+congruents_all = 0
+congruents_max = 0
+congruents_min = 10222
 for i in range(0, 1000):
     congruents      = 0
     evset           = []
@@ -29,7 +30,9 @@ for i in range(0, 1000):
     congruents_all  = congruents_all + congruents
     if congruents > congruents_max:
         congruents_max = congruents
-    print(i, congruents_max, round(1/(congruents_max/groups)), 1), round(1/(congruents_all/groups/(i+1)), 1))
+    if congruents < congruents_min:
+        congruents_min = congruents
+    print(i, round(1/(congruents_min/groups), 1), round(1/(congruents_all/groups/(i+1)), 1), round(1/(congruents_max/groups), 1))
 exit()
 
 ##Rekeying Congruent Test
