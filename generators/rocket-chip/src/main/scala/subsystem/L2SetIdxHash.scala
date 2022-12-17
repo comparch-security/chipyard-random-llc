@@ -296,37 +296,34 @@ class PermutationsGenerator(val rangeHi: Int) extends Module {
 
 }
 
-class Maurice2015Hua2011(val channels: Int) extends Module
+class Maurice2015Hua2011(channels: Int, val setBits: Int, val blkBits: Int, val rtsize: Int, val hkeyBits: Int) extends Module
 {
-  val permWidth = log2Up(L2SetIdxHashFun.blkBits)
-  val l2setBits = L2SetIdxHashFun.l2setBits
-  val blkBits   = L2SetIdxHashFun.blkBits
-  val l2sets    = 1 << l2setBits
+  val rtidxBits    = log2Up(rtsize)
   val io = new Bundle {
     val req         = Vec(channels, Decoupled(new L2SetIdxHashReq()).flip)
     val resp        = Vec(channels, Valid(new L2SetIdxHashResp().asOutput))
     val fillRan     = Valid(new L2SetIdxHashFillRan()).asInput
-    val fillSram    = Valid(new PermutationsFill(numWidth = 6)).asInput
+    val fillSram    = Valid(new PermutationsFill(numWidth = hkeyBits)).asInput
   }
 
   val (sramL, _)  = DescribedSRAM(
     name = "sram_left",
     desc = "sram_left",
-    size = (1 << 6),
-    data = UInt(width = 6)
+    size = rtsize,
+    data = UInt(width = hkeyBits)
   )
   val (sramR, _)  = DescribedSRAM(
     name = "sram_right",
     desc = "sram_right",
-    size = (1 << 6),
-    data = UInt(width = 6)
+    size = rtsize,
+    data = UInt(width = hkeyBits)
   )
-  val sramLIndexHkey  = Reg(Vec(6, UInt(blkBits.W)))
-  val sramRIndexHkey  = Reg(Vec(6, UInt(blkBits.W)))
+  val sramLIndexHkey  = Reg(Vec(rtidxBits, UInt(blkBits.W)))
+  val sramRIndexHkey  = Reg(Vec(rtidxBits, UInt(blkBits.W)))
   val reqArb          = Module(new Arbiter(new L2SetIdxHashReq(),  channels))
 
-  val wipeCount       = RegInit(UInt(0,  width = 6 + 1))
-  val wipeDone        = wipeCount(6)
+  val wipeCount       = RegInit(UInt(0,  width = rtidxBits + 1))
+  val wipeDone        = wipeCount(rtidxBits)
   val sramLWValid     = !wipeDone || (io.fillSram.valid && io.fillSram.bits.loc === L2RTAL.LEFT)
   val sramLWAddr      = Mux(wipeDone, io.fillSram.bits.addr,   wipeCount)
   val sramLWData      = Mux(wipeDone, io.fillSram.bits.number, wipeCount)
@@ -352,7 +349,7 @@ class Maurice2015Hua2011(val channels: Int) extends Module
   when(sramRWValid) { sramR.write(sramRWAddr, sramRWData) }
   when(io.fillRan.valid && io.fillRan.bits.loc === L2RTAL.LEFT) { blkadrHKeyL := (blkadrHKeyL << 1) + io.fillRan.bits.random }
   when(io.fillRan.valid && io.fillRan.bits.loc === L2RTAL.RIGH) { blkadrHKeyR := (blkadrHKeyR << 1) + io.fillRan.bits.random }
-  (0 until 6).map { i => {
+  (0 until rtidxBits).map { i => {
     when(io.fillRan.valid && io.fillRan.bits.addr === i.U) {
       when(io.fillRan.bits.loc === L2RTAL.LEFT) { sramLIndexHkey(i) := io.fillRan.bits.random }
       when(io.fillRan.bits.loc === L2RTAL.RIGH) { sramRIndexHkey(i) := io.fillRan.bits.random }
@@ -362,6 +359,8 @@ class Maurice2015Hua2011(val channels: Int) extends Module
   //req & resp
   val hua2011L =  L2SetIdxHashFun.tx3nt(Cat(ranL, blkadrHLatchL), 3)
   val hua2011R =  L2SetIdxHashFun.tx3nt(Cat(ranR, blkadrHLatchR), 3)
+  val resplhset    =  L2SetIdxHashFun.XorConcentrate(hua2011L, setBits)
+  val resprhset    =  L2SetIdxHashFun.XorConcentrate(hua2011R, setBits)
   (0 until channels).map { ch => {
     //req
     reqArb.io.in(ch).valid    := io.req(ch).valid
@@ -369,8 +368,8 @@ class Maurice2015Hua2011(val channels: Int) extends Module
     io.req(ch).ready          := reqArb.io.in(ch).ready
     //resp
     io.resp(ch).valid         := RegNext(io.req(ch).fire())
-    io.resp(ch).bits.lhset    := L2SetIdxHashFun.XorConcentrate(hua2011L, L2SetIdxHashFun.l2setBits)
-    io.resp(ch).bits.rhset    := L2SetIdxHashFun.XorConcentrate(hua2011R, L2SetIdxHashFun.l2setBits)
+    io.resp(ch).bits.lhset    := resplhset
+    io.resp(ch).bits.rhset    := resprhset
   }}
   reqArb.io.out.ready         := wipeDone
 }

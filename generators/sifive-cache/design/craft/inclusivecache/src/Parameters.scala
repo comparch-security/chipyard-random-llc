@@ -127,30 +127,20 @@ case class InclusiveCacheMicroParameters(
 
 case class InclusiveCacheRemapParameters(
   en:      Boolean,
-  banks:   Int, //radnom table banks
-  hkeys:   Int, //sets
-  hkeyw:   Int)
+  rtsize:     Int, //key table size
+  hkeyBits:   Int)
 {
   if(en) {
-    require(banks > 0 && isPow2(banks))
-    require(hkeys > 0)
-    require(hkeyw > 0)
+    require(rtsize > 0)
+    require(hkeyBits > 0)
   }
   val channels = 5
-  val hkeysw   = log2Up(hkeys)
-  val banksw   = log2Up(banks)
-  val hkeyspb  = hkeys/banks  //hkeys per bank
-  val hkeyspbw = log2Up(hkeyspb) //hkeys per bank bitw
-
   val enableRemaperLog         = true
   val enableDirEntrySwaperLog  = false
   val enableDataBlockSwaperLog = false
 
   val rtdelay  = 1
   require(rtdelay > 0)
-
-  //                remaper  x      c     a
-  val rtcamen = Seq(false, false, false, false)
 
 }
 

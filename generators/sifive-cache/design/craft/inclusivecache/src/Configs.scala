@@ -88,10 +88,9 @@ class WithInclusiveCache(
         innerBuf = bufInnerInterior,
         outerBuf = bufOuterInterior),
       InclusiveCacheRemapParameters(
-       en     = true,
-       banks  = 4,
-       hkeys  = sets/4,
-       hkeyw  = log2Up(sets) * 7 / 9),
+       en        = true,
+       rtsize    = 64,    //key table size
+       hkeyBits  = log2Up(sets)),
       Some(InclusiveCacheControlParameters(
         address = InclusiveCacheParameters.L2ControlAddress,
         beatBytes = cbus.beatBytes))))

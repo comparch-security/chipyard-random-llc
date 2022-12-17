@@ -28,78 +28,6 @@ class RandomTableReqIO(val w: Int) extends Bundle {
   val blkadr  = UInt(width = w) //cache block address
 }
 
-class RandomTableBase(params: InclusiveCacheParameters) extends Module
-{
-  val io = new Bundle {
-    val rst   = Bool().asInput
-    val mix   = Valid(UInt(width = params.remap.hkeyw )).asInput
-    val req   = Decoupled(new RandomTableReqIO(params.maxblkBits)).flip //cache block address
-    val resp  = UInt(width = params.setBits).asOutput
-  }
-
-  val setBits    = params.setBits // l2 setbits
-  val tagBits    = params.tagBits // l2 tagbits
-  val hkeyw      = params.remap.hkeyw
-  val hkeyspb    = params.remap.hkeyspb    
-  val hkeyspbw   = params.remap.hkeyspbw   //idxw
-  val banksw     = params.remap.banksw
-
-  val reqtag     = io.req.bits.blkadr >> setBits
-  val reqset     = io.req.bits.blkadr(setBits-1, 0)
-  val rtab_resp  = Wire(UInt(width = hkeyw))
-  
-  def getr(data: UInt):         UInt = { Cat(data.asBools)                                } //get reverse
-  def getl(full: UInt, w: Int): UInt = { full(w-1, 0)                                     } //get low part
-  def getm(full: UInt, w: Int): UInt = { full(w+(full.getWidth-w)/2, (full.getWidth-w)/2) } //get middle part
-  def geth(full: UInt, w: Int): UInt = { full(full.getWidth-1,       full.getWidth-1-w)   } //get high part
-
-  val lfsr      = FibonacciLFSR.maxPeriod(hkeyw.max(setBits).max(tagBits)+2, true.B, seed = Some(1))
-  val refblfsr  = Wire(Bool())                           //refersh
-  val selectOH  = RegInit(UInt(1, width = 3))
-  val blfsr     = RegEnable(lfsr + io.mix.bits,             refblfsr)  //base lfsr
-  val blfsrr    = getr(blfsr)
-  val htag      = Cat((tagBits-1 to 0 by -2).map { i => getr(reqtag(i, 0.max(i-1)) + blfsr(i, 0.max(i-1)))  })
-  val hset      = Cat((setBits-1 to 0 by -2).map { i => getr(reqset(i, 0.max(i-1)) + blfsrr(i, 0.max(i-1))) })
-  val ghkey     =  {
-      val selOH = Mux(reqtag(3) ^ blfsr(0), Mux(reqtag(4) ^ blfsr(1),  selectOH, Cat(selectOH(1,0), selectOH(2))), Cat(selectOH(0), selectOH(2,1)))
-      RegNext(Mux1H(selOH, Seq(hset, reqset, getr(hset))) ^ geth(htag, setBits) ^ getm(htag, setBits) ^ getl(htag, setBits) ^ blfsrr)
-  }
-  when(refblfsr) { selectOH := Cat(selectOH(1,0), selectOH(2)) }
-  
-  //wiping the rtab with 0s on reset has ultimate priority
-  val wipeData  = Reg(UInt(width = hkeyw))
-  val wipeCount = RegInit(UInt(0,  width = hkeyspbw + 1))
-  val wipeDone  = wipeCount(hkeyspbw)
-  val wipeSet   = wipeCount(hkeyspbw - 1,0)
-
-  val req = Wire(new Bundle {
-    val v    = Bool()
-    val idx  = UInt(width = hkeyspbw)
-  })
-
-  //req
-  req.v         :=  io.req.fire()
-  req.idx       :=  Mux1H(selectOH, Seq(reqset, getr(reqset), getm(Cat(getr(reqset), reqset), hkeyspbw))) ^ geth(reqtag, hkeyspbw) ^ getm(reqtag, hkeyspbw) ^ getl(reqtag, hkeyspbw)
-  io.req.ready  :=  wipeDone
-
-  //resp
-  io.resp       := (Cat(rtab_resp, getr(rtab_resp))  ^ ghkey(params.setBits-1, 0))
-
-  //update
-  when(!wipeDone) { wipeData := wipeData + (lfsr ^ io.mix.bits) }
-  when(reset)     { wipeData := io.mix.bits }
-  refblfsr  := !wipeDone && wipeData(0)
-  wipeCount := Mux(io.rst, 0.U, Mux(wipeDone || !io.mix.valid, wipeCount, wipeCount+1.U))
-
-  if(params.remap.en) {
-    val (rtab, _) = DescribedSRAM(name = "rtab", desc = "RandomTable RAM", size = hkeyspb, data = UInt(hkeyw.W))
-    rtab_resp  := rtab.read(req.idx, req.v)
-    when(!wipeDone) { rtab.write(wipeSet, wipeData) }
-  } else {
-    io.resp    := RegNext(reqset)    
-  }
-}
-
 class RandomTableBankCmd extends Bundle {
   val rst  = Bool()
   val send = Bool()
@@ -109,38 +37,6 @@ class RandomTableBankCmd extends Bundle {
 class RandomTableBankResp(val w: Int) extends Bundle {
   val lhset  = UInt(width = w)
   val rhset  = UInt(width = w)
-}
-
-class RandomTableBank(params: InclusiveCacheParameters) extends Module {
-  val io = new Bundle {
-    val mix     = Valid(UInt(width = params.remap.hkeyw )).asInput
-    val req     = Decoupled(new RandomTableReqIO(params.maxblkBits)).flip //cache block address
-    val cmd     = Valid(new RandomTableBankCmd).asInput
-    val resp    = Valid(new RandomTableBankResp(params.setBits)).asOutput
-    val readys  = Bool() //both side are ready
-  }
-  val lrtab = Module(new RandomTableBase(params))
-  val rrtab = Module(new RandomTableBase(params))
-  val lfsr  = FibonacciLFSR.maxPeriod(params.remap.hkeyw+1, true.B, seed = Some(2))
-  //req
-  io.req.ready := RegNext(lrtab.io.req.ready | rrtab.io.req.ready)
-  lrtab.io.req.valid     := io.req.valid
-  lrtab.io.req.bits      := io.req.bits
-  lrtab.io.rst           := io.cmd.valid && io.cmd.bits.rst && io.cmd.bits.loc === RTAL.LEFT
-  lrtab.io.mix.bits      := RegNext(io.mix.bits + lfsr)
-  lrtab.io.mix.valid     := io.mix.valid
-  rrtab.io.req.valid     := io.req.valid
-  rrtab.io.req.bits      := io.req.bits
-  rrtab.io.rst           := io.cmd.valid && io.cmd.bits.rst && io.cmd.bits.loc === RTAL.RIGH
-  rrtab.io.mix.bits      := RegNext(Cat(io.mix.bits(0), io.mix.bits(params.remap.hkeyw-1, 1)) - lfsr)
-  rrtab.io.mix.valid     := io.mix.valid
-
-  //resp
-  io.resp.valid         := RegNext(io.req.fire())
-  io.resp.bits.lhset    := lrtab.io.resp
-  io.resp.bits.rhset    := rrtab.io.resp
-
-  io.readys             := lrtab.io.req.ready && rrtab.io.req.ready
 }
 
 class RandomTableIO(params: InclusiveCacheParameters) extends InclusiveCacheBundle(params) {
@@ -153,75 +49,6 @@ class RandomTableIO(params: InclusiveCacheParameters) extends InclusiveCacheBund
   val sendDone  = Bool()
 }
 
-class RandomTable(params: InclusiveCacheParameters) extends Module {
-
-  val setBits   = params.setBits // l2 setbits
-  val tagBits   = params.tagBits // l2 tagbits 
-  val channels  = params.remap.channels
-
-  val io        = new RandomTableIO(params)
-  val sethash   = Module(new L2SetIdxHash(channels))
-  val sendRanQ  = Module(new Queue(io.sendRan.bits.cloneType, 1, pipe = false, flow = false))
-  
-  val cmdloc     = RegEnable(io.cmd.bits.loc, io.cmd.valid && io.cmd.bits.rst)
-  val randoms    = L2SetIdxHashFun.randoms
-  val randomsW   = log2Up(randoms + 1)
-  val wipeCount  = RegInit(UInt(randoms,  width = randomsW))
-  val sendCount  = RegInit(UInt(randoms,  width = randomsW))
-  val delayCount = Reg(Vec(2, UInt(width = 4)))
-  val wipeDone   = wipeCount === randoms.U
-  val sendDone   = sendCount === randoms.U
-  val delayDone  = delayCount.map(_(3))
-  val fillRan    = io.mix.valid && !wipeDone && sendRanQ.io.enq.ready
-  val sendRan    = sendRanQ.io.deq.fire()
-  io.wipeDone    := wipeDone && delayDone(0)
-  io.sendDone    := sendDone && delayDone(1) //delay for waitting tile's l2sethash receive all randoms
-
-  when( io.cmd.valid && io.cmd.bits.rst                     ) { wipeCount := 0.U;              delayCount(0) := 0.U }
-  when( io.cmd.valid && io.cmd.bits.send                    ) { sendCount := 0.U;              delayCount(1) := 0.U }
-  when( fillRan                                             ) { wipeCount := wipeCount + 1.U;                       }
-  when( sendRan                                             ) { sendCount := sendCount + 1.U                        }
-  when( wipeDone  && !delayDone(0) && sendRanQ.io.enq.ready ) { delayCount(0) := delayCount(0) + 1.U                }
-  when( sendDone  && !delayDone(1) && sendRanQ.io.enq.ready ) { delayCount(1) := delayCount(1) + 1.U                }
- 
-  require(setBits == L2SetIdxHashFun.l2setBits) //How to parametrize?
-
-  //fillRan
-  sethash.io.fillRan.valid           := fillRan
-  sethash.io.fillRan.bits.loc        := cmdloc
-  sethash.io.fillRan.bits.addr       := wipeCount
-  sethash.io.fillRan.bits.fin        := wipeCount === (randoms - 1).U
-  sethash.io.fillRan.bits.random     := io.mix.bits
-
-  //check and send Random
-  sethash.io.checkRan.valid          := !sendDone && sendRanQ.io.enq.ready
-  sethash.io.checkRan.bits.addr      := sendCount(randomsW - 1, 0)
-  sethash.io.checkRan.bits.loc       := cmdloc
-  sethash.io.checkRan.bits.fin       := sendCount(randomsW - 1, 0) === (randoms - 1).U
-  sendRanQ.io.enq                    <> sethash.io.sendRan
-  io.sendRan                         <> sendRanQ.io.deq
-  io.sendRan.bits.random             := sendRanQ.io.deq.bits.random(setBits - 1, 0)
-  //if tile's l2sethash is twins doesn't need check we can send fill directly
-  if(L2SetIdxHashFun.twinsInTile) {
-    io.sendDone                      := io.wipeDone
-    sethash.io.checkRan.valid        := false.B
-    sendRanQ.io.enq.valid            := sethash.io.fillRan.valid
-    sendRanQ.io.enq.bits             := sethash.io.fillRan.bits
-  }
-
-  (0 until channels).map { ch => {
-    //req
-    sethash.io.req(ch).valid         := io.req(ch).valid
-    sethash.io.req(ch).bits.blkadr   := io.req(ch).bits.blkadr
-    io.req(ch).ready                 := sethash.io.req(ch).ready
-    //resp
-    io.resp(ch).valid                := sethash.io.resp(ch).valid
-    io.resp(ch).bits.lhset           := sethash.io.resp(ch).bits.lhset
-    io.resp(ch).bits.rhset           := sethash.io.resp(ch).bits.rhset
-  }}
-
-}
-
 class Maurice2015Hua2011Table(params: InclusiveCacheParameters) extends Module {
 
   val setBits   = params.setBits // l2 setbits
@@ -230,24 +57,27 @@ class Maurice2015Hua2011Table(params: InclusiveCacheParameters) extends Module {
   val sets      = params.cache.sets
   val blkBits   = L2SetIdxHashFun.blkBits
   val rtdelay   = params.remap.rtdelay
+  val rtsize    = params.remap.rtsize
+  val hkeyBits  = params.remap.hkeyBits
+  val rtidxBits = log2Up(rtsize)
 
   val io        = new RandomTableIO(params)
-  val sethash   = Module(new Maurice2015Hua2011(channels))
+  val sethash   = Module(new Maurice2015Hua2011(channels, setBits, blkBits, rtsize, hkeyBits))
   val sendRanQ  = Module(new Queue(io.sendRan.bits.cloneType, 1, pipe = false, flow = false))
-  val litPNGor  = Module(new PermutationsGenerator((1<<6) - 1))
+  val litPNGor  = Module(new PermutationsGenerator((1<<1) - 1))
   //val bigPNGor  = Module(new PermutationsGenerator(sets - 1))
 
+  val s_0 :: s_1 :: s_2 :: s_f :: Nil = Enum(Bits(), 4)
   val cmdloc     = RegEnable(io.cmd.bits.loc, io.cmd.valid && io.cmd.bits.rst)
-  val wipeCount  = RegInit(UInt(1<<6,  width = 6 + 1))
-  val delayCount = Reg(Vec(2, UInt(width = 4)))
-  val wipeDone   = wipeCount(6)
-  val delayDone  = delayCount.map(_(3))
-  io.wipeDone    := wipeDone && delayDone(0)
+  val wipeCount  = RegInit(UInt(1 << rtidxBits,  width = rtidxBits + 1))
+  val wipeDone   = wipeCount(rtidxBits)
+  val wipeStage  = Reg(init = s_f)
+  io.wipeDone    := wipeStage === s_f
   io.sendDone    := io.wipeDone
 
-  when( io.cmd.valid && io.cmd.bits.rst   ) { wipeCount := 0.U;  delayCount(0) := 0.U }
-  when( litPNGor.io.fill.valid            ) { wipeCount := wipeCount + 1.U            }
-  when( wipeDone  && !delayDone(0)        ) { delayCount(0) := delayCount(0) + 1.U    }
+  when( !wipeDone                                ) {   wipeCount := wipeCount + 1.U                   }
+  when( wipeDone  && wipeStage =/= s_f           ) {   wipeCount := 0.U; wipeStage := wipeStage + 1.U }
+  when( io.cmd.valid && io.cmd.bits.rst          ) {   wipeCount := 0.U; wipeStage := s_0             }
 
   //repermute
   litPNGor.io.swap.valid             := io.mix.valid
@@ -258,12 +88,14 @@ class Maurice2015Hua2011Table(params: InclusiveCacheParameters) extends Module {
   //fill
   litPNGor.io.active                 := io.cmd.valid && io.cmd.bits.rst
   //bigPNGor.io.active                 := io.cmd.valid && io.cmd.bits.rst
-  sethash.io.fillRan.valid           := !wipeDone
+  sethash.io.fillRan.valid           := wipeStage === s_0
   sethash.io.fillRan.bits.loc        := cmdloc
   sethash.io.fillRan.bits.addr       := wipeCount
   sethash.io.fillRan.bits.random     := io.mix.bits
-  sethash.io.fillSram.valid          := litPNGor.io.fill.valid
-  sethash.io.fillSram.bits           := litPNGor.io.fill.bits
+  sethash.io.fillSram.valid          := wipeStage === s_1
+  //sethash.io.fillSram.bits           := litPNGor.io.fill.bits
+  sethash.io.fillSram.bits.addr      := wipeCount
+  sethash.io.fillSram.bits.number    := io.mix.bits
   sethash.io.fillSram.bits.loc       := cmdloc
   litPNGor.io.fill.ready             := true.B
   //bigPNGor.io.fill.ready             := true.B
