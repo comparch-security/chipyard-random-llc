@@ -499,6 +499,7 @@ class Scheduler(params: InclusiveCacheParameters) extends Module
     attackdetector.io.access.valid    := io.pfcupdate.itlink.a_Done    && remaper.io.req.ready
     attackdetector.io.evict.valid     := sourceC.io.req.fire()         && remaper.io.req.ready
     attackdetector.io.evict.bits.set  := sourceC.io.req.bits.set
+    when(attackdetector.io.erranl.valid && mix_c === 11.U) { mix_c := attackdetector.io.erranl.bits.toBits } //in case optimize
 
     //ASSERT
     when(sinkX.io.req.fire() && sinkX.io.req.bits.control && sinkX.io.req.bits.opcode === XOPCODE.SWAP) { 
