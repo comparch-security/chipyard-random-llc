@@ -78,17 +78,19 @@ class UART(busWidthBytes: Int, val c: UARTParams, divisorInit: Int = 0)
   if(divisorInit==0)  println("For simulation only beacuse UART divisor was fixed to zero!!")
   require(divisorInit >> c.divisorBits == 0, s"UART divisor reg (width $c.divisorBits) not wide enough to hold $divisorInit")
 
-  val osduartNodes = BundleBridgeSource(() => (new OSDUARTDEMIO()))
-  val io = InModuleBody { osduartNodes.bundle }
+  //val osduartNodes = BundleBridgeSource(() => (new OSDUARTDEMIO()))
+  //val io = InModuleBody { osduartNodes.bundle }
   lazy val module = new LazyModuleImp(this) {
 
   val txm = Module(new UARTTx(c))
-  val txq = if(c.isosddem) Module(new Queue(io.out.bits,      c.nTxEntries))
-            else           Module(new Queue(txm.io.in.bits,   c.nTxEntries))
+  val txq = Module(new Queue(txm.io.in.bits,   c.nTxEntries))
+  //val txq = if(c.isosddem) Module(new Queue(io.out.bits,      c.nTxEntries))
+  //          else           Module(new Queue(txm.io.in.bits,   c.nTxEntries))
 
   val rxm = Module(new UARTRx(c))
-  val rxq = if(c.isosddem)  Module(new Queue(io.in.bits,      c.nRxEntries))
-            else            Module(new Queue(rxm.io.out.bits, c.nRxEntries))
+  val rxq = Module(new Queue(rxm.io.out.bits, c.nRxEntries))
+  //val rxq = if(c.isosddem)  Module(new Queue(io.in.bits,      c.nRxEntries))
+  //          else            Module(new Queue(rxm.io.out.bits, c.nRxEntries))
 
   val div = Reg(init = UInt(divisorInit, c.divisorBits))
 
@@ -111,14 +113,14 @@ class UART(busWidthBytes: Int, val c: UARTParams, divisorInit: Int = 0)
   val ie = Reg(init = new UARTInterrupts().fromBits(Bits(0)))
   val ip = Wire(new UARTInterrupts)
 
-  if(c.isosddem) {
+  /*if(c.isosddem) {
     io.out.bits      := txq.io.deq.bits
     io.out.valid     := txen & txq.io.deq.valid & !io.drop
     txq.io.deq.ready := io.out.ready | io.drop
     rxq.io.enq.bits  := io.in.bits
     rxq.io.enq.valid := rxen & io.in.valid
     io.in.ready      := rxq.io.enq.ready
-  } else {
+  } else {*/
     if (c.includeFourWire){
       txm.io.en := txen && (!port.cts_n.get || !enwire4)
       txm.io.cts_n.get := port.cts_n.get
@@ -154,7 +156,7 @@ class UART(busWidthBytes: Int, val c: UARTParams, divisorInit: Int = 0)
       errorparity := rxm.io.errorparity.get || errorparity
       interrupts(1) := errorparity && errie
     }
-  }
+  //}
   ip.txwm := (txq.io.count < txwm)
   ip.rxwm := (rxq.io.count > rxwm)
   interrupts(0) := (ip.txwm && ie.txwm) || (ip.rxwm && ie.rxwm)

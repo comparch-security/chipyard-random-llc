@@ -265,7 +265,7 @@ class InclusiveCache(
       scheduler
     }
 
-    createPFCManager(mods, cache.sets, p(freechips.rocketchip.subsystem.RocketTilesKey).length+1)
+    createPFCManager(mods, cache.sets, p(freechips.rocketchip.subsystem.RocketTilesKey).length)
     createRandomBroadCaster(mods)
 
     def json = s"""{"banks":[${mods.map(_.json).mkString(",")}]"""

@@ -9,7 +9,7 @@ import freechips.rocketchip.tilelink.TLMessages
 trait HasInclusiveCachePFCManager { this: sifive.blocks.inclusivecache.InclusiveCache =>
 
   val (pfmanode, pfmaio) = {
-    val nClients = p(freechips.rocketchip.subsystem.RocketTilesKey).length + 1
+    val nClients = p(freechips.rocketchip.subsystem.RocketTilesKey).length
     //val node = new BundleBridgeSink(Some(() =>  Flipped((new PFCManagerIO(nClients).cloneType))))
     val node = BundleBridgeSource(() => Flipped((new PFCManagerIO(nClients).cloneType)))
     val io  = InModuleBody { node.bundle }

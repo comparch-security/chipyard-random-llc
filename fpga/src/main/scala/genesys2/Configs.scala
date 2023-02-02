@@ -21,7 +21,7 @@ import testchipip.{SerialTLKey}
 import chipyard.{BuildSystem, ExtTLMem}
 
 class WithDefaultPeripherals extends Config((site, here, up) => {
-  case PeripheryUARTKey => List(UARTParams(address = BigInt(0x64000000L), isosddem=true))
+  case PeripheryUARTKey => List(UARTParams(address = BigInt(0x64000000L)))
   case PeripherySPIKey => List(SPIParams(rAddress = BigInt(0x64001000L)))
   case PeripheryGPIOKey => List(GPIOParams(address = BigInt(0x64002000L)))
   case GENESYS2ShellPMOD => "SDIO"

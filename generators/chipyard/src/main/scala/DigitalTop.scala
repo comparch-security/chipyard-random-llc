@@ -15,7 +15,6 @@ import freechips.rocketchip.osd._
 
 // DOC include start: DigitalTop
 class DigitalTop(implicit p: Parameters) extends ChipyardSystem
-  with freechips.rocketchip.osd.HasOSDMAM
   with testchipip.CanHaveTraceIO // Enables optionally adding trace IO
   with testchipip.CanHaveBackingScratchpad // Enables optionally adding a backing scratchpad
   with testchipip.CanHavePeripheryBlockDevice // Enables optionally adding the block device
@@ -33,7 +32,6 @@ class DigitalTop(implicit p: Parameters) extends ChipyardSystem
 }
 
 class DigitalTopModule[+L <: DigitalTop](l: L) extends ChipyardSystemModule(l)
-  with freechips.rocketchip.osd.HasOSDImp
   with testchipip.CanHaveTraceIOModuleImp
   with sifive.blocks.devices.uart.HasPeripheryUARTModuleImp
   with sifive.blocks.devices.gpio.HasPeripheryGPIOModuleImp

@@ -51,10 +51,10 @@ class ChipTop(implicit p: Parameters) extends LazyModule with BindingScope
     lazySystem.module match { case l: LazyModuleImp => {
       l.clock := implicit_clock
       l.reset := implicit_reset
-      if(l.isInstanceOf[DigitalTopModule[_]]) {
+      /*if(l.isInstanceOf[DigitalTopModule[_]]) {
         sys_rst := l.asInstanceOf[DigitalTopModule[_]].sys_rst.asBool()
         l.asInstanceOf[DigitalTopModule[_]].glip_rst := glip_rst.asBool()
-      }
+      }*/
     }}
 
 
