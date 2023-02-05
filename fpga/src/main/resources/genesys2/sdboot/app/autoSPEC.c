@@ -7,6 +7,7 @@
 #include <signal.h>
 #include <fcntl.h>
 #include <sys/mman.h>
+#include <sys/wait.h>
 #include <pthread.h>
 #include <sched.h>
 
@@ -250,6 +251,7 @@ uint64_t main (int argc, char *argv[])
        printf("\n");
        fflush(stdout);
        execlp("/bin/sh", "sh", "-c", speccmd[sel], NULL);
+       exit(0);
      } else {
        if(sel) {
          CPU_ZERO((&get[0]));
@@ -259,24 +261,38 @@ uint64_t main (int argc, char *argv[])
          if(!CPU_ISSET(0, &(get[0]))) {
            printf("main_thread %ld is not running in processor %d\n", pthread_self(), 0);
          }
+         pid_t    wait_rv = pid;
+         int      child_status;
+         uint8_t  child_exit = 0;
          uint64_t e_inst;  //end_instructions
          uint64_t n_inst;  //now_instructions
          uint8_t run_time=time;
          led(sel);
          FILE* fp=NULL;
-         fp = fopen(pfcfile, "a+");
-         fprintf(fp, "\n--------------------------pfc_%d--------------------------\n", sel);
-         fprintf(fp, speccmd[sel]);
-         fprintf(fp, "\n");
          config_pfc();
-         sleep(60); //warm up
+         sched_yield();
+         //sleep(60); //warm up
          get_pfc_all(s_pfccsr);
          e_inst = get_pfc_inst()+inst;
          sleep(time*60);
          n_inst = get_pfc_inst();
-         while(n_inst < e_inst) { run_time = run_time+1; sleep(60);  n_inst = get_pfc_inst(); }
+         while(n_inst < e_inst) {
+           for(uint8_t i = 0; i<10; i++) {
+             sleep(6);
+             wait_rv = waitpid(pid, &child_status, WNOHANG);
+             if(wait_rv == -1 || WIFEXITED(child_status) || WIFSIGNALED(child_status)) child_exit = 1;
+             if(child_exit == 1) break;
+           }
+           if(child_exit == 1) break;
+           run_time = run_time+1;
+           n_inst = get_pfc_inst();
+         }
          get_pfc_all(c_pfccsr);
          kill(pid, SIGKILL);
+         fp = fopen(pfcfile, "a+");
+         fprintf(fp, "\n--------------------------pfc_%d--------------------------\n", sel);
+         fprintf(fp, speccmd[sel]);
+         fprintf(fp, "\n");
          fprintf(fp, "run_time: %d\n", run_time);
          log_pfc(fp);
          fclose(fp);
