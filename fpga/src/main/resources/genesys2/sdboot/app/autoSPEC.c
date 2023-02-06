@@ -263,10 +263,10 @@ uint64_t main (int argc, char *argv[])
          }
          pid_t    wait_rv = pid;
          int      child_status;
-         uint8_t  child_exit = 0;
+         uint8_t  child_exited = 0;
          uint64_t e_inst;  //end_instructions
          uint64_t n_inst;  //now_instructions
-         uint8_t run_time=time;
+         uint16_t run_time = time;
          led(sel);
          FILE* fp=NULL;
          config_pfc();
@@ -279,17 +279,27 @@ uint64_t main (int argc, char *argv[])
          while(n_inst < e_inst) {
            for(uint8_t i = 0; i<10; i++) {
              sleep(6);
+             //https://www.ibm.com/docs/en/zos/2.1.0?topic=functions-waitpid-wait-specific-child-process-end
+             //https://man7.org/linux/man-pages/man2/wait.2.html
+             //if WNOHANG was specified and one or more child(ren) specified by pid exist, but have not yet changed state, then 0 is returned
              wait_rv = waitpid(pid, &child_status, WNOHANG);
-             if(wait_rv == -1 || WIFEXITED(child_status) || WIFSIGNALED(child_status)) child_exit = 1;
-             if(child_exit == 1) break;
+             if(wait_rv != 0) {
+               if((wait_rv == -1 || WIFEXITED(child_status) || WIFSIGNALED(child_status))) {
+                 child_exited = 1;
+                 break;
+               }
+             }
            }
-           if(child_exit == 1) break;
+           if(child_exited == 1) break;
            run_time = run_time+1;
            n_inst = get_pfc_inst();
          }
          get_pfc_all(c_pfccsr);
          kill(pid, SIGKILL);
          fp = fopen(pfcfile, "a+");
+         if(fp == NULL) {
+           printf("\nFaild to open file!!\n");
+         }
          fprintf(fp, "\n--------------------------pfc_%d--------------------------\n", sel);
          fprintf(fp, speccmd[sel]);
          fprintf(fp, "\n");
