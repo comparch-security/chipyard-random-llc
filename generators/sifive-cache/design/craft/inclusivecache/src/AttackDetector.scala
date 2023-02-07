@@ -241,7 +241,7 @@ class ExponentialMovingAverageZScore(
   when(stage(1).state === s_finish && stage(2).state === s_idle) {
     stage(2).state                 := s_req
     stage(2).temp                  := stage(1).temp
-    stage(2).temp.emazAddend(0)    := ((stage(1).temp.evWZscore >> (evFracWidth - emazFracWidth).U >> (io.req.bits.discount - 1.U)) + 1.U) >> 1.U
+    stage(2).temp.emazAddend(0)    := stage(1).temp.evWZscore >> (evFracWidth - emazFracWidth).U >> io.req.bits.discount
   }
   io.emazread.valid                := stage(2).state === s_req
   io.emazread.bits                 := stage(2).temp.set
@@ -250,7 +250,7 @@ class ExponentialMovingAverageZScore(
     stage(2).state                 := s_finish
     stage(2).temp.emazAddend(1)    := io.emazresp.bits - (io.emazresp.bits >> io.req.bits.discount)
     when((io.emazresp.bits >> io.req.bits.discount) > 1.U) {
-      stage(2).temp.emazAddend(1)  := io.emazresp.bits - (((io.emazresp.bits >> (io.req.bits.discount - 1.U)) + 1.U) >> 1.U)
+      stage(2).temp.emazAddend(1)  := io.emazresp.bits - (io.emazresp.bits >> io.req.bits.discount)
     }
     when((io.emazresp.bits >> io.req.bits.discount) === 0.U) {
       (1 to 7).map(i => { when(io.req.bits.discount === i.U && lfsr(i-1, 0) < io.emazresp.bits(i-1, 0)) { stage(2).temp.emazAddend(1) := io.emazresp.bits - 1.U }})
@@ -404,11 +404,13 @@ class AttackDetector(params: InclusiveCacheParameters) extends Module
   val evFix                      = evInt2Fix(evicts)
   val evErrNeg                   = evFix < evAvera
   val evErrAbs                   = Mux(evErrNeg, evAvera - evInt2Fix(evicts), evInt2Fix(evicts) - evAvera)
-  val evSqSum                    = Reg(UInt((evSqIntWidth + evSqFracWidth + params.setBits).W))
+  val evSqSumLatch               = Reg(Vec(2, UInt(0, width = evSqIntWidth + params.setBits)))
+  val evSqSum                    = Wire(UInt((evSqIntWidth + evSqFracWidth + params.setBits).W))
   val evSqAvera                  = evSqSum(evSqSum.getWidth - 1, params.setBits)
   val evStdDev                   = Reg(UInt((evIntWidth + evFracWidth).W)) //Root Mean Square
   val evStdDevReci               = Reg(UInt((evIntWidth + evFracWidth).W))
   val evOverFlow                 = Reg(Bool())
+
 
   io.remap.bits.atdetec := (max_emaz > Cat(io.config1.zthreshold, 0.U(emazFracWidth.W))) || evOverFlow
 
@@ -434,6 +436,8 @@ class AttackDetector(params: InclusiveCacheParameters) extends Module
     max_emaz         := 0.U
     evLatch(0)       := 0.U
     evLatch(1)       := 0.U
+    evSqSumLatch(0)  := 0.U
+    evSqSumLatch(1)  := 0.U
     evOverFlow       := false.B
     state            := s_idle
   }
@@ -469,13 +473,12 @@ class AttackDetector(params: InclusiveCacheParameters) extends Module
   calReadEvS2.bits  := Mux(evReadArb.io.in(1).fire() && state =/= s_idle, calReadEvS1.bits, calReadEvS2.bits)
   when( state === s_idle ) {
     when(count_period > io.config1.period && io.config1.enzth) {
-      state                  := s_SqSum
-      evSqSum                := 0.U
+      state                  := s_StdDevReq
       count_period           := 0.U
       calReadEvS1.valid      := true.B
       calReadEvS1.bits       := 0.U
-      when(recordWay === 0.U) { recordWay := 1.U; evLatch(1) := 0.U  }
-      when(recordWay === 1.U) { recordWay := 0.U; evLatch(0) := 0.U  }
+      when(recordWay === 0.U) { recordWay := 1.U; evLatch(1) := 0.U; evSqSumLatch(1) := 0.U }
+      when(recordWay === 1.U) { recordWay := 0.U; evLatch(0) := 0.U; evSqSumLatch(0) := 0.U }
     }
   }
   when( state === s_SqSum ) {
@@ -532,6 +535,14 @@ class AttackDetector(params: InclusiveCacheParameters) extends Module
   evicts := evresp(0)
   when(RegNext(evReadArb.io.in(0).fire) && recordWay === 1.U) { evicts := evresp(1) }
   when(RegNext(evReadArb.io.in(1).fire) && recordWay === 0.U) { evicts := evresp(1) }
+  //update evSqSum
+  when(RegNext(evReadArb.io.in(0).fire)) {
+    when(evicts =/= UIntMax(evicts)) {
+      when(recordWay === 0.U) { evSqSumLatch(0) := evSqSumLatch(0) + Cat(evicts, 1.U(1.W)) }
+      when(recordWay === 1.U) { evSqSumLatch(1) := evSqSumLatch(1) + Cat(evicts, 1.U(1.W)) }
+    }
+  }
+  evSqSum := Cat(Mux(recordWay === 0.U, evSqSumLatch(1), evSqSumLatch(0)), 0.U(evSqFracWidth.W))
   //sram_evicts: write
   val increaseEvicts = Mux(evicts === UIntMax(evicts), evicts, evicts + 1.U)
   evWriteArb.io.in(0).valid         := !wipeDone
@@ -566,7 +577,7 @@ class AttackDetector(params: InclusiveCacheParameters) extends Module
   //mul: req
   mulBusyCnt := Mux(mul.io.req.valid, mulLatency.U, Mux(mulBusyCnt === 0.U, 0.U, mulBusyCnt - 1.U))
   val mulReqArb = Module(new Arbiter(new MultiplierReq(mulWidth, MultiplierTag.SZ), 3))
-  mulReqArb.io.in(0).valid     := calReadEvS2.valid && state === s_SqSum
+  mulReqArb.io.in(0).valid     := false.B
   mulReqArb.io.in(0).bits.in1  := evInt2Fix(evicts)
   mulReqArb.io.in(0).bits.in2  := evInt2Fix(evicts)
   mulReqArb.io.in(0).bits.tag  := MultiplierTag.ERRSQ
@@ -580,9 +591,6 @@ class AttackDetector(params: InclusiveCacheParameters) extends Module
   //mul: resp
   sar.io.mulresp               := mul.io.resp
   emaz.io.mulresp              := mul.io.resp
-  when(mul.io.resp.valid && mul.io.resp.bits.tag === MultiplierTag.ERRSQ) {
-    evSqSum                   := evSqSum + mul.io.resp.bits.data.asUInt()
-  }
 
   //sar: req
   sar.io.req.valid             := state === s_StdDevReq || state === s_ReciReq
