@@ -73,6 +73,7 @@ class ErrorAnalysis(setBits        : Int,
   val delta           = UInt(width = emazIntWidth + emazFracWidth)
   val deltaNeg        = Bool()
   val emaz            = UInt(width = emazIntWidth + emazFracWidth)
+  val detected        = Bool()
 
   override def cloneType = new ErrorAnalysis(setBits        ,
                                              evIntWidth     ,     evFracWidth    ,
@@ -340,6 +341,8 @@ class AttackDetector(params: InclusiveCacheParameters) extends Module
       val fifoready   = Bool().asOutput
       val wipedone    = Bool().asOutput
       val calculate   = Bool().asOutput
+      val calsqsum    = Bool().asOutput
+      val calemaz     = Bool().asOutput
       val trigger     = Bool().asInput
       val erranl      = Decoupled(new ErrorAnalysis(params.setBits, evIntWidth, evFracWidth, evSqIntWidth, evSqFracWidth, emazIntWidth, emazFracWidth))
     }
@@ -415,11 +418,11 @@ class AttackDetector(params: InclusiveCacheParameters) extends Module
   when(evSum       ===    UIntMax(evSum)    && io.config1.enzth)      { io.remap.valid := true.B }
   when(io.remap.bits.atdetec                && io.config1.enzth)      { io.remap.valid := true.B }
   when(count_period > io.config1.period     && state =/= s_idle)      { io.remap.valid := true.B }  //not finish z in time
-  when(io.access.valid && io.remap.ready) {
+  when(io.access.valid) {
     when(count_access =/= UIntMax(count_access)                 ) { count_access    := count_access   + 1.U }
     when(count_period =/= UIntMax(count_period)                 ) { count_period    := count_period   + 1.U }
   }
-  when(io.evict.valid && io.remap.ready) {
+  when(io.evict.valid) {
     when(count_evicts =/= UIntMax(count_evicts)                 ) { count_evicts    := count_evicts   + 1.U  }
     when(recordWay === 0.U && evLatch(0) =/= UIntMax(evLatch(0))) { evLatch(0)      := evLatch(0)     + 1.U  }
     when(recordWay === 1.U && evLatch(1) =/= UIntMax(evLatch(1))) { evLatch(1)      := evLatch(1)     + 1.U  }
@@ -512,7 +515,7 @@ class AttackDetector(params: InclusiveCacheParameters) extends Module
   }
 
   //sram_evicts: read
-  evUpdQue.io.enq.valid         := io.evict.valid && io.remap.ready
+  evUpdQue.io.enq.valid         := io.evict.valid
   evUpdQue.io.enq.bits          := io.evict.bits.set
   evReadArb.io.in(0)            <> evUpdQue.io.deq
   evReadArb.io.in(1).valid      := calReadEvS1.valid && (state === s_SqSum || state === s_EMAZ)
@@ -637,6 +640,8 @@ class AttackDetector(params: InclusiveCacheParameters) extends Module
   io.debug.fifoready          := evUpdQue.io.enq.ready
   io.debug.wipedone           := wipeDone
   io.debug.calculate          := state =/= s_idle || count_period > io.config1.period
+  io.debug.calsqsum           := state === s_SqSum
+  io.debug.calemaz            := state === s_EMAZ
   when(io.debug.trigger) {
     count_period := io.config1.period + 1.U
   }
@@ -649,6 +654,7 @@ class AttackDetector(params: InclusiveCacheParameters) extends Module
   io.debug.erranl.bits.evSqAvera         := evSqAvera
   io.debug.erranl.bits.evStdDev          := evStdDev
   io.debug.erranl.bits.evStdDevReci      := evStdDevReci
+  io.debug.erranl.bits.detected          := io.remap.valid
   require(io.debug.erranl.bits.evSum.getWidth      == evSum.getWidth     )
   require(io.debug.erranl.bits.evSqSum.getWidth    == evSqSum.getWidth   )
   require(io.debug.erranl.bits.evSqAvera.getWidth  == evSqAvera.getWidth )
@@ -693,17 +699,21 @@ class AttackDetectorTrace(params: InclusiveCacheParameters) extends Module {
     val mix          = UInt(width = 128)
   }
 
-  val evictsl     = Reg(Vec(params.cache.sets, UInt(0, width = io.tracein.bits.ev.getWidth)))
-  val deltal      = Reg(Vec(params.cache.sets, UInt(0, width = io.tracein.bits.delta.getWidth)))
-  //val evictsr     = Reg(Vec(params.cache.sets, UInt(0, width = io.tracein.ev.getWidth)))
-  val erranll     = Reg(new ErrorAnalysis(params.setBits, evIntWidth, evFracWidth, evSqIntWidth, evSqFracWidth, emazIntWidth, emazFracWidth))
-  //val erranlr     = Reg(new ErrorAnalysis(params.setBits, evIntWidth, evFracWidth, evSqIntWidth, evSqFracWidth, emazIntWidth, emazFracWidth))
-  val tracein     = Reg(new ErrorAnalysis(params.setBits, evIntWidth, evFracWidth, evSqIntWidth, evSqFracWidth, emazIntWidth, emazFracWidth))
+  //val evictsl       = Reg(Vec(params.cache.sets, UInt(0, width = io.tracein.bits.ev.getWidth)))
+  //val deltal        = Reg(Vec(params.cache.sets, UInt(0, width = io.tracein.bits.delta.getWidth)))
+  //val evictsr       = Reg(Vec(params.cache.sets, UInt(0, width = io.tracein.ev.getWidth)))
+  //val erranll       = Reg(new ErrorAnalysis(params.setBits, evIntWidth, evFracWidth, evSqIntWidth, evSqFracWidth, emazIntWidth, emazFracWidth))
+  //val erranlr       = Reg(new ErrorAnalysis(params.setBits, evIntWidth, evFracWidth, evSqIntWidth, evSqFracWidth, emazIntWidth, emazFracWidth))
+  val tracein       = Reg(new ErrorAnalysis(params.setBits, evIntWidth, evFracWidth, evSqIntWidth, evSqFracWidth, emazIntWidth, emazFracWidth))
+  val tracecheckR   = Reg(Vec(2, new ErrorAnalysis(params.setBits, evIntWidth, evFracWidth, evSqIntWidth, evSqFracWidth, emazIntWidth, emazFracWidth)))
+  val tracecheck    = Wire(new ErrorAnalysis(params.setBits, evIntWidth, evFracWidth, evSqIntWidth, evSqFracWidth, emazIntWidth, emazFracWidth))
 
-  val evictin     = Reg(UInt(0, width = 3))
   val trigger     = Reg(UInt(0, width = 8))
-  when( evictin =/= 0.U ) { evictin := evictin - 1.U }
   when( trigger =/= 0.U ) { trigger := trigger - 1.U }
+
+  val insel        = Reg(UInt(0, width = 1))
+  val checksel     = Reg(UInt(0, width = 1))
+  tracecheck      := tracecheckR(checksel)
 
   attackdetector.io.config0.enath              := false.B
   attackdetector.io.config0.athreshold         := 163840.U
@@ -713,66 +723,77 @@ class AttackDetectorTrace(params: InclusiveCacheParameters) extends Module {
   attackdetector.io.config1.period             := 4096.U
   attackdetector.io.config1.zthreshold         := 5.U
   attackdetector.io.config1.enzth              := true.B
-  io.tracein.ready                             := true.B
-  when( tracein.ev =/= 0.U                        )                { io.tracein.ready  := false.B }
-  when( evictin    =/= 0.U                        )                { io.tracein.ready  := false.B }
-  when( !attackdetector.io.debug.wipedone         )                { io.tracein.ready  := false.B }
-  when( attackdetector.io.debug.calculate         )                { io.tracein.ready  := false.B }
+  io.tracein.ready                             := tracein.ev === 0.U
+  when( attackdetector.io.debug.calculate ) {
+    io.tracein.ready := false.B
+    when(tracein.ev === 0.U && !io.tracein.bits.detected) {
+      when( attackdetector.io.debug.calsqsum ) {
+        io.tracein.ready := io.tracein.bits.set < (params.cache.sets >> 1).U
+      }
+      when( attackdetector.io.debug.calemaz )  {
+        io.tracein.ready := io.tracein.bits.set < (params.cache.sets - 1).U
+      }
+    }
+  }
   when( trigger    =/= 0.U                        )                { io.tracein.ready  := false.B }
   when( RegNext(attackdetector.io.debug.trigger)  )                { io.tracein.ready  := false.B }
+  when( !attackdetector.io.debug.wipedone         )                { io.tracein.ready  := false.B }
 
   io.traceout.valid                            := attackdetector.io.debug.erranl.valid
   io.traceout.bits                             := attackdetector.io.debug.erranl.bits
+  io.traceout.bits.evSqSum                     := attackdetector.io.debug.erranl.bits.evSqSum >> evSqFracWidth
   io.remapfire                                 := attackdetector.io.remap.fire()
 
   attackdetector.io.remap.ready     := !attackdetector.io.debug.calculate
-  attackdetector.io.evict.valid     := evictin === 1.U
+  attackdetector.io.evict.valid     := tracein.ev =/= 0.U && attackdetector.io.debug.fifoready
   attackdetector.io.evict.bits.set  := tracein.set
   attackdetector.io.debug.trigger   := trigger === 1.U
 
   when(io.tracein.fire()) {
     tracein    := io.tracein.bits
-    evictsl(io.tracein.bits.set)  := io.tracein.bits.ev
-    deltal(io.tracein.bits.set)   := io.tracein.bits.delta
+    //evictsl(io.tracein.bits.set)  := io.tracein.bits.ev
+    //deltal(io.tracein.bits.set)   := io.tracein.bits.delta
     when(io.tracein.bits.set === 0.U)    {
-      erranll  := io.tracein.bits
-    }
-    when(io.tracein.bits.ev  =/= 0.U) {
-      evictin  := 4.U
+      tracecheckR(insel)  := io.tracein.bits
     }
     when(io.tracein.bits.ev  === 0.U && io.tracein.bits.set === (params.cache.sets - 1).U )     {
       trigger  := 16.U
     }
+    when( io.tracein.bits.set === (params.cache.sets - 1).U ) {
+      insel    := insel + 1.U
+    }
   }
   when( attackdetector.io.evict.valid )  {
-    assert(tracein.ev =/= 0.U)
     tracein.ev := tracein.ev - 1.U
-    when(tracein.ev > 1.U ) {
-      evictin := 4.U
-    }
     when( tracein.ev === 1.U && attackdetector.io.evict.bits.set === (params.cache.sets - 1).U ) {
       trigger := 16.U
     }
   }
+  when( attackdetector.io.debug.erranl.valid ) {
+    when(attackdetector.io.debug.erranl.bits.set === (params.cache.sets - 1).U ) {
+      checksel := checksel + 1.U
+    }
+  }
   when( reset ) {
-    evictin    := 0.U
+    insel      := 0.U
+    checksel   := 0.U
     trigger    := 0.U
     tracein.ev := 0.U
   }
 
   //check
   val evStdDevErr      = Wire(init = 0.U((2 * attackdetector.io.debug.erranl.bits.evStdDev.getWidth).W))
-  evStdDevErr         := Mux(attackdetector.io.debug.erranl.bits.evStdDev > erranll.evStdDev,
-                             attackdetector.io.debug.erranl.bits.evStdDev - erranll.evStdDev,
-                             erranll.evStdDev - attackdetector.io.debug.erranl.bits.evStdDev)
+  evStdDevErr         := Mux(attackdetector.io.debug.erranl.bits.evStdDev > tracecheck.evStdDev,
+                             attackdetector.io.debug.erranl.bits.evStdDev - tracecheck.evStdDev,
+                             tracecheck.evStdDev - attackdetector.io.debug.erranl.bits.evStdDev)
   val evStdDevReciErr  = Wire(init = 0.U((2 * attackdetector.io.debug.erranl.bits.evStdDev.getWidth).W))
-  evStdDevReciErr     := Mux(attackdetector.io.debug.erranl.bits.evStdDevReci > erranll.evStdDevReci,
-                             attackdetector.io.debug.erranl.bits.evStdDevReci - erranll.evStdDevReci,
-                             erranll.evStdDevReci - attackdetector.io.debug.erranl.bits.evStdDevReci)
-  val deltaErr         = Wire(init = 0.U((2 * attackdetector.io.debug.erranl.bits.delta.getWidth).W))
+  evStdDevReciErr     := Mux(attackdetector.io.debug.erranl.bits.evStdDevReci > tracecheck.evStdDevReci,
+                             attackdetector.io.debug.erranl.bits.evStdDevReci - tracecheck.evStdDevReci,
+                             tracecheck.evStdDevReci - attackdetector.io.debug.erranl.bits.evStdDevReci)
+  /*val deltaErr         = Wire(init = 0.U((2 * attackdetector.io.debug.erranl.bits.delta.getWidth).W))
   deltaErr            := Mux(attackdetector.io.debug.erranl.bits.delta > deltal(attackdetector.io.debug.erranl.bits.set),
                              attackdetector.io.debug.erranl.bits.delta - deltal(attackdetector.io.debug.erranl.bits.set),
-                             deltal(attackdetector.io.debug.erranl.bits.set) - attackdetector.io.debug.erranl.bits.delta)
+                             deltal(attackdetector.io.debug.erranl.bits.set) - attackdetector.io.debug.erranl.bits.delta)*/
   val evStdDevSq       = Wire(init = 0.U((2 * attackdetector.io.debug.erranl.bits.evStdDev.getWidth).W))
   val evStdDevSqErr    = Wire(init = 0.U((2 * attackdetector.io.debug.erranl.bits.evStdDev.getWidth).W))
   evStdDevSq          := attackdetector.io.debug.erranl.bits.evStdDev * attackdetector.io.debug.erranl.bits.evStdDev
@@ -787,27 +808,27 @@ class AttackDetectorTrace(params: InclusiveCacheParameters) extends Module {
                              (1 << evSqFracWidth).U - evSDMulReci)
   when(attackdetector.io.debug.erranl.valid) {
     //assert( evictsl(attackdetector.io.debug.erranl.bits.set)    === (attackdetector.io.debug.erranl.bits.ev >> evFracWidth)           )
-    assert( erranll.evSum  ===  attackdetector.io.debug.erranl.bits.evSum,
+    assert( tracecheck.evSum  ===  attackdetector.io.debug.erranl.bits.evSum,
             "%d != %d ",
-            erranll.evSum,
+            tracecheck.evSum,
             attackdetector.io.debug.erranl.bits.evSum)
-    assert( erranll.evSqSum  === (attackdetector.io.debug.erranl.bits.evSqSum >> evSqFracWidth),
+    assert( tracecheck.evSqSum  === (attackdetector.io.debug.erranl.bits.evSqSum >> evSqFracWidth),
             "%d != %d ",
-            erranll.evSqSum,
+            tracecheck.evSqSum,
             (attackdetector.io.debug.erranl.bits.evSqSum >> evSqFracWidth))
     assert( attackdetector.io.debug.erranl.bits.evSqAvera === (attackdetector.io.debug.erranl.bits.evSqSum >> params.setBits),
             "%d != %d ",
             attackdetector.io.debug.erranl.bits.evSqAvera,
             (attackdetector.io.debug.erranl.bits.evSqSum >> params.setBits))
-     /*assert( 100.U*evStdDevErr     < erranll.evStdDev,
+     /*assert( 100.U*evStdDevErr     < tracecheck.evStdDev,
             "%d != %d error %d",
             attackdetector.io.debug.erranl.bits.evStdDev,
-            erranll.evStdDev,
+            tracecheck.evStdDev,
             evStdDevErr)
-    assert( 100.U*evStdDevReciErr  < erranll.evStdDevReci,
+    assert( 100.U*evStdDevReciErr  < tracecheck.evStdDevReci,
             "%d != %d error %d",
             attackdetector.io.debug.erranl.bits.evStdDevReci,
-            erranll.evStdDevReci,
+            tracecheck.evStdDevReci,
             evStdDevReciErr)
     assert( 100.U*deltaErr        < deltal(attackdetector.io.debug.erranl.bits.set) || deltaErr === 0.U,
             "%d != %d error %d at set %d",
@@ -832,7 +853,8 @@ class AttackDetectorTrace(params: InclusiveCacheParameters) extends Module {
   }
 
   //in case of optimize
-  val mix = Reg(UInt(0, width = 128))
-  mix    := io.tracein.bits.toBits
-  io.mix := mix
+  val counter = Reg(UInt(0, width = 128))
+  when(attackdetector.io.debug.calculate) { counter := counter + 1.U }
+  when(attackdetector.io.debug.trigger)   { counter := 0.U           }
+  io.mix := counter ^ io.tracein.bits.toBits
 }
