@@ -24,7 +24,9 @@ inline void atdect_config0(uint32_t ath, uint8_t enath, uint32_t eth, uint8_t en
 
 inline void atdect_config1(uint8_t discount, uint32_t period, uint8_t zth, uint8_t enzth)
 { 
-  uint64_t atdet_config1 = (uint64_t)((((((uint64_t)(discount) << 20) + period) << 4) + zth) << 1) + (enzth & 0x01);
+
+   uint64_t atdet_config1 = (((uint64_t)discount) << 25)  + (((uint64_t)zth) << 21) + (((uint64_t)period) << 1) + (enzth & 0x01);
+
   *(volatile uint64_t *)(ATDECT_CONFIG1_ADDR) = atdet_config1;
 }
 

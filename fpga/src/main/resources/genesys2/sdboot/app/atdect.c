@@ -15,23 +15,31 @@
 #define   L2_CTRL_PAGE_OFFSET     (L2_CTRL_BASE & 0XFFFFF000)
 
 int main(int argc, char **argv) {
-   if(argc != 9) {
-    printf("\nuseage: [eneth] [evict_threshold] [enath] [access_threshold] [enzth] [z_threshold] [period] [discount] \n");
-    printf("example:     1         1024           1         8192             1          5          4096        5     \n");
+   if(argc != 7) {
+    //                      argv[1]             argv[2]      argv[3]    argv[4]         argv[5]      argv[6]         argv[7]
+    printf("\nuseage:  [evict_threshold] [access_threshold] [period] [z_threshold0]  [discount0] [z_threshold1]  [discount1] \n");
+    printf("example:          1024              8192          4096        5             5           20               3\n");
+    printf("threshold 0 means disable\n");
     return 0;
   }
 
-   uint8_t  eneth         = atoi(argv[1]); if(eneth    >     0)   eneth   =     1;
-   uint32_t eth           = atoi(argv[2]);
-   uint8_t  enath         = atoi(argv[3]); if(enath    >     0)   enath   =     1;
-   uint32_t ath           = atoi(argv[4]);
-   uint8_t  enzth         = atoi(argv[5]); if(enzth    >     0)   enzth   =     1;
-   uint32_t zth           = atoi(argv[6]); if(zth      >    16)     zth   =    15;
-   uint32_t period        = atoi(argv[7]); if(period   > 65536)  period   = 65536; if(period < 1024)  period = 1024;
-   uint32_t discount      = atoi(argv[8]); if(discount >     8)  discount =     8;
+   uint64_t eneth         = 1;
+   uint64_t enzth         = 1;
+   uint64_t enath         = 1;
+   uint64_t eth           = atoi(argv[1]);
+   uint64_t ath           = atoi(argv[2]);
+   uint64_t period        = atoi(argv[3]); if(period     > 65536)   period    = 65536; if(period < 1024)  period = 1024;
+   uint64_t zth0          = atoi(argv[4]); if(zth0       >    15)     zth0    =    15;
+   uint64_t discount0     = atoi(argv[5]); if(discount0  >    15)   discount0 =    15;
+   uint64_t zth1          = atoi(argv[6]); if(zth1       >    31)     zth1    =    31;
+   uint64_t discount1     = atoi(argv[7]); if(discount1  >    15)   discount1 =    15;
+
+   if(ath  == 0             ) enath = 0;
+   if(eth  == 0             ) eneth = 0;
+   if(zth0 == 0 && zth1 == 0) enzth = 0;
+
    uint64_t atdet_config0 = (uint64_t)((((uint64_t)ath << 1) + enath) << 32) + (uint32_t)((eth << 1) + eneth);
-   uint64_t atdet_config1 = (uint64_t)(((((discount << 20) + period) << 4) + zth) << 1) + enzth;
-   volatile uint64_t check;
+   uint64_t atdet_config1 = (discount1 << 34) + (zth1 << 29) + (discount0 << 25)  + (zth0 << 21) + (period << 1) + enzth;
 
    static int dev_fd;
    dev_fd = open("/dev/mem", O_RDWR);

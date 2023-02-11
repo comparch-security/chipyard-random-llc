@@ -22,7 +22,8 @@ wire  [14:0]   traceout_bits_evSum;
 wire  [39:0]   traceout_bits_evSqSum;
 wire  [14:0]   traceout_bits_evStdDev;
 wire  [14:0]   traceout_bits_evStdDevReci;
-wire  [14:0]   traceout_bits_emaz;
+wire  [13:0]   traceout_bits_emaz0;
+wire  [14:0]   traceout_bits_emaz1;
 wire  [ 9:0]   traceout_bits_set;
 wire  [13:0]   traceout_bits_delta;
 wire           traceout_bits_deltaNeg;
@@ -56,12 +57,7 @@ AttackDetectorTrace DUT(
 .io_tracein_bits_set(tracein_bits_set),
 .io_tracein_bits_ev(tracein_bits_ev),
 .io_tracein_bits_detected(tracein_bits_detected),
-.io_traceout_bits_evErrAbs(),
-.io_traceout_bits_evErrNeg(),
-.io_traceout_bits_evMulErr(),
-.io_traceout_bits_evWZscore(),
 .io_tracein_bits_delta(tracein_bits_delta),
-.io_traceout_bits_emaz(),
 .io_traceout_ready(traceout_ready),
 .io_traceout_valid(traceout_valid),
 .io_traceout_bits_evSum(traceout_bits_evSum),
@@ -78,7 +74,8 @@ AttackDetectorTrace DUT(
 .io_traceout_bits_evWZscore(),
 .io_traceout_bits_delta(traceout_bits_delta),
 .io_traceout_bits_deltaNeg(traceout_bits_deltaNeg),
-.io_traceout_bits_emaz(traceout_bits_emaz),
+.io_traceout_bits_emaz0(traceout_bits_emaz0),
+.io_traceout_bits_emaz1(traceout_bits_emaz1),
 .io_remapfire(),
 .io_mix()
 );
@@ -89,7 +86,8 @@ int file_cm_emaz_int;
 int file_cm_globar_var_int;
 
 int file_vm_delta_int;
-int file_vm_emaz_int;
+int file_vm_emaz0_int;
+int file_vm_emaz1_int;
 int file_vm_globar_var_int;
 
 initial begin
@@ -97,7 +95,8 @@ initial begin
   file_cm_delta_int              = $fopen("./log/cmodel/cdelta_int.log","r");
   file_cm_globar_var_int         = $fopen("./log/cmodel/cglobal_var_int.log","r");
   file_vm_delta_int              = $fopen("./log/vmodel/vdelta_int.log","a+");
-  file_vm_emaz_int               = $fopen("./log/vmodel/vemaz_int.log","a+");
+  file_vm_emaz0_int               = $fopen("./log/vmodel/vemaz0_int.log","a+");
+  file_vm_emaz1_int               = $fopen("./log/vmodel/vemaz1_int.log","a+");
   file_vm_globar_var_int         = $fopen("./log/vmodel/vglobal_var_int.log","a+");
 end
 
@@ -143,7 +142,8 @@ always @(posedge clk) begin
   if(rst) begin
   end else begin
     if( traceout_valid && traceout_ready) begin
-      $fwrite(file_vm_emaz_int,             "%d ",  traceout_bits_emaz);
+      $fwrite(file_vm_emaz0_int,            "%d ",  traceout_bits_emaz0);
+      $fwrite(file_vm_emaz1_int,            "%d ",  traceout_bits_emaz1);
       $fwrite(file_vm_delta_int,            "%d ",  traceout_bits_delta);
       //if(traceout_bits_deltaNeg && traceout_bits_delta == 0) begin
       //  $fwrite(file_vm_delta_int,         "-%d ",  traceout_bits_delta); 
@@ -156,7 +156,8 @@ always @(posedge clk) begin
         $fwrite(file_vm_globar_var_int,     "%d " ,        traceout_bits_evStdDev);
         $fwrite(file_vm_globar_var_int,     "%d " ,    traceout_bits_evStdDevReci);
         $fwrite(file_vm_globar_var_int,     "\n");
-        $fwrite(file_vm_emaz_int,           "\n\n");
+        $fwrite(file_vm_emaz0_int,          "\n\n");
+        $fwrite(file_vm_emaz1_int,          "\n\n");
         $fwrite(file_vm_delta_int,          "\n\n");
       end
     end
@@ -169,7 +170,8 @@ always @(posedge clk) begin
       $fclose(file_cm_ev);
       $fclose(file_cm_globar_var_int);
       $fclose(file_vm_delta_int);
-      $fclose(file_vm_emaz_int);
+      $fclose(file_vm_emaz0_int);
+      $fclose(file_vm_emaz1_int);
       $fclose(file_vm_globar_var_int);
       $finish;
     end

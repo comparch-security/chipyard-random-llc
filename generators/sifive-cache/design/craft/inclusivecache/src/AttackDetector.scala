@@ -56,7 +56,7 @@ class SuccessiveApproximateRegisterResp(inWidth: Int) extends Bundle {
 class ErrorAnalysis(setBits        : Int,
                     evIntWidth     : Int, evFracWidth      :   Int,
                     evSqIntWidth   : Int, evSqFracWidth    :   Int,
-                    emazIntWidth   : Int, emazFracWidth    :   Int) extends Bundle {
+                    emaz0IntWidth  : Int, emaz1IntWidth    :   Int, emazFracWidth    :   Int) extends Bundle {
   val evSum           = UInt(width = evIntWidth + setBits)
   val evAvera         = UInt(width = evIntWidth + setBits - evFracWidth)
   val evSqSum         = UInt(width = evSqIntWidth + evSqFracWidth + setBits)
@@ -70,15 +70,16 @@ class ErrorAnalysis(setBits        : Int,
   val evErrNeg        = Bool()
   val evMulErr        = UInt(width = 2 * evIntWidth + evFracWidth)   //evMulErr  = ev * evErrAbs = ev * |ev - evAver|
   val evWZscore       = UInt(width = 3 * evIntWidth + evFracWidth)   //evWZscore = evMulErr * evStdDevReci
-  val delta           = UInt(width = emazIntWidth + emazFracWidth)
+  val delta           = UInt(width = emaz0IntWidth + emazFracWidth)
   val deltaNeg        = Bool()
-  val emaz            = UInt(width = emazIntWidth + emazFracWidth)
+  val emaz0           = UInt(width = emaz0IntWidth + emazFracWidth)
+  val emaz1           = UInt(width = emaz1IntWidth + emazFracWidth)
   val detected        = Bool()
 
   override def cloneType = new ErrorAnalysis(setBits        ,
                                              evIntWidth     ,     evFracWidth    ,
                                              evSqIntWidth   ,     evSqFracWidth  ,
-                                             emazIntWidth   ,     emazFracWidth  ).asInstanceOf[this.type]
+                                             emaz0IntWidth  ,     emaz1IntWidth  , emazFracWidth  ).asInstanceOf[this.type]
 }
 
 class SuccessiveApproximateRegister(inWidth: Int,  mulWidth: Int) extends Module {
@@ -161,26 +162,28 @@ class ExponentialMovingAverageZScoreReq(setBits: Int, evWidth: Int, discountWidt
   val evErrAbs        = UInt(width = evWidth) //|ev - evAver|
   val evErrNeg        = Bool()
   val evStdDevReci    = UInt(width = evWidth)
-  val discount        = UInt(width = discountWidth)
+  val discount        = Vec(2, UInt(width = discountWidth))
   override def cloneType = new ExponentialMovingAverageZScoreReq(setBits, evWidth, discountWidth).asInstanceOf[this.type]
 }
 
 class ExponentialMovingAverageZScore(
           val evIntWidth:   Int,  val evFracWidth:   Int,
           val evSqIntWidth: Int,  val evSqFracWidth: Int,
-          val emazIntWidth: Int,  val emazFracWidth: Int,
+          val emaz0IntWidth: Int,  val emaz1IntWidth: Int, val emazFracWidth: Int,
           val setBits:      Int,  val mulWidth:      Int, val discountWidth: Int) extends Module {
 
   class emazwrite extends Bundle {
     val set    = UInt(width = setBits)
-    val emaz   = UInt(width = emazIntWidth + emazFracWidth)
+    val emaz0  = UInt(width = emaz0IntWidth + emazFracWidth)
+    val emaz1  = UInt(width = emaz1IntWidth + emazFracWidth)
   }
 
   class TempResult extends ExponentialMovingAverageZScoreReq(setBits, evIntWidth + evFracWidth, discountWidth) {
      val evMulErr     = UInt(width = 2 * evIntWidth + evFracWidth)   //evMulErr  = ev * evErrAbs = ev * |ev - evAver|
      val evWZscore    = UInt(width = 3 * evIntWidth + evFracWidth)   //evWZscore = evMulErr * evStdDevReci
-     val emazAddend   = Vec(2, UInt(width = 3 * evIntWidth + emazFracWidth))
-     val result       = UInt(width = emazIntWidth + emazFracWidth)   //result = emazAddend(0) + emazAddend(1)
+     val emazAddend   = Vec(4, UInt(width = 3 * evIntWidth + emazFracWidth))
+     val result0      = UInt(width = emaz0IntWidth + emazFracWidth)   //result0  = emazAddend(0) + emazAddend(1)
+     val result1      = UInt(width = emaz1IntWidth + emazFracWidth)  //result1 = emazAddend(0) + emazAddend(1)
      //override def cloneType = new TempResult(setBits, emazWidth, emazWidth, discountWidth).asInstanceOf[this.type]
   }
   val io = new Bundle {
@@ -188,11 +191,14 @@ class ExponentialMovingAverageZScore(
     val mulreq    = Decoupled(new MultiplierReq(mulWidth, MultiplierTag.SZ))
     val mulresp   = Flipped(Valid(new MultiplierResp(mulWidth, MultiplierTag.SZ)))
     val emazread  = Decoupled(UInt(width = setBits))
-    val emazresp  = Flipped(Valid(UInt(width = emazIntWidth + emazFracWidth)))
+    val emazresp  = Flipped(Valid(UInt(width = emaz1IntWidth + emazFracWidth + emaz0IntWidth + emazFracWidth)))
     val emazwrite = Valid(new emazwrite())
-    val max       = new TempResult()
-    val erranl    = Valid(new ErrorAnalysis(setBits, evIntWidth, evFracWidth, evSqIntWidth, evSqFracWidth, emazIntWidth, emazFracWidth))
+    val erranl    = Valid(new ErrorAnalysis(setBits, evIntWidth, evFracWidth, evSqIntWidth, evSqFracWidth, emaz0IntWidth, emaz1IntWidth, emazFracWidth))
   }
+
+
+  val emazold_0 = io.emazresp.bits(emaz0IntWidth + emazFracWidth - 1, 0)
+  val emazold_1 = io.emazresp.bits >> (emaz0IntWidth + emazFracWidth)
 
   val lfsr       = FibonacciLFSR.maxPeriod(16, true.B, seed = Some(11))
   val mulreqArb  = Module(new Arbiter(new MultiplierReq(mulWidth, MultiplierTag.SZ), 2))
@@ -201,7 +207,6 @@ class ExponentialMovingAverageZScore(
     val state  = UInt(width = 2)
     val temp   = new TempResult()
   }
-  val maxLatch = Reg(new Stage())
   val stage = Seq.fill(4) { Reg(new Stage()) }
   io.mulreq <> mulreqArb.io.out
 
@@ -210,9 +215,6 @@ class ExponentialMovingAverageZScore(
   when(io.req.fire()) {
     stage(0).state                 := s_req
     stage(0).temp                  := io.req.bits
-    when(io.req.bits.set === 0.U) {
-      maxLatch.temp.result         := 0.U
-    }
   }
   mulreqArb.io.in(0).valid         :=  stage(0).state === s_req
   mulreqArb.io.in(0).bits.tag      :=  MultiplierTag.EMAZS1
@@ -245,47 +247,48 @@ class ExponentialMovingAverageZScore(
   when(stage(1).state === s_finish && stage(2).state === s_idle) {
     stage(2).state                 := s_req
     stage(2).temp                  := stage(1).temp
-    stage(2).temp.emazAddend(0)    := stage(1).temp.evWZscore >> (evFracWidth - emazFracWidth).U >> io.req.bits.discount
+    stage(2).temp.emazAddend(0)    := stage(1).temp.evWZscore >> (evFracWidth - emazFracWidth).U >> io.req.bits.discount(0)
+    stage(2).temp.emazAddend(2)    := stage(1).temp.evWZscore >> (evFracWidth - emazFracWidth).U >> io.req.bits.discount(1)
   }
   io.emazread.valid                := stage(2).state === s_req
   io.emazread.bits                 := stage(2).temp.set
   when(io.emazread.fire())        { stage(2).state := s_resp }
   when(stage(2).state === s_resp   && io.emazresp.valid) {
     stage(2).state                 := s_finish
-    stage(2).temp.emazAddend(1)    := io.emazresp.bits - (io.emazresp.bits >> io.req.bits.discount)
-    when((io.emazresp.bits >> io.req.bits.discount) > 1.U) {
-      stage(2).temp.emazAddend(1)  := io.emazresp.bits - (io.emazresp.bits >> io.req.bits.discount)
-    }
-    when((io.emazresp.bits >> io.req.bits.discount) === 0.U) {
-      (1 to 7).map(i => { when(io.req.bits.discount === i.U && lfsr(i-1, 0) < io.emazresp.bits(i-1, 0)) { stage(2).temp.emazAddend(1) := io.emazresp.bits - 1.U }})
-    }
-    when(io.req.bits.discount === 0.U || io.emazresp.bits === 0.U) { stage(2).temp.emazAddend(1) := 0.U }
+    stage(2).temp.emazAddend(1)    := emazold_0 - (emazold_0 >> io.req.bits.discount(0))
+    stage(2).temp.emazAddend(3)    := emazold_1 - (emazold_1 >> io.req.bits.discount(1))
+    //when(io.req.bits.discount === 0.U || io.emazresp.bits === 0.U) { stage(2).temp.emazAddend(1) := 0.U }
   }
   when(stage(2).state === s_finish && stage(3).state === s_idle) { stage(2).state := s_idle }
 
   //stage 4 : result = emazAddend(0) + emazAddend(1)
-  val emazAddendAdd  = stage(2).temp.emazAddend(1) + stage(2).temp.emazAddend(0)
-  val emazAddendSub  = stage(2).temp.emazAddend(1) - stage(2).temp.emazAddend(0)
-  val resultMax      = (1 << stage(2).temp.result.getWidth) - 1
-  val overflowHi     = emazAddendAdd >= resultMax.U
-  val overflowLo     = stage(2).temp.emazAddend(1) <= stage(2).temp.emazAddend(0)
+  val emazAddendAdd0  = stage(2).temp.emazAddend(1) + stage(2).temp.emazAddend(0)
+  val emazAddendAdd1  = stage(2).temp.emazAddend(3) + stage(2).temp.emazAddend(2)
+  val emazAddendSub0  = stage(2).temp.emazAddend(1) - stage(2).temp.emazAddend(0)
+  val emazAddendSub1  = stage(2).temp.emazAddend(3) - stage(2).temp.emazAddend(2)
+  val result0Max     = (1 << stage(2).temp.result0.getWidth) - 1
+  val result1Max     = (1 << stage(2).temp.result1.getWidth) - 1
+  val overflowHi0     = emazAddendAdd0 >= result0Max.U
+  val overflowHi1     = emazAddendAdd1 >= result1Max.U
+  val overflowLo0     = stage(2).temp.emazAddend(1) <= stage(2).temp.emazAddend(0)
+  val overflowLo1     = stage(2).temp.emazAddend(3) <= stage(2).temp.emazAddend(2)
   when(stage(2).state === s_finish && stage(3).state === s_idle) {
     stage(3).state                 := s_req
     stage(3).temp                  := stage(2).temp
-    stage(3).temp.result           := Mux(stage(2).temp.evErrNeg, Mux(overflowLo,         0.U, emazAddendSub),
-                                                                  Mux(overflowHi, resultMax.U, emazAddendAdd))
+    stage(3).temp.result0          := Mux(stage(2).temp.evErrNeg, Mux(overflowLo0,          0.U, emazAddendSub0),
+                                                                  Mux(overflowHi0, result0Max.U, emazAddendAdd0))
+    stage(3).temp.result1          := Mux(stage(2).temp.evErrNeg, Mux(overflowLo1,          0.U, emazAddendSub1),
+                                                                  Mux(overflowHi1, result1Max.U, emazAddendAdd1))
   }
   io.emazwrite.valid               := stage(3).state === s_req && !io.emazread.valid
   io.emazwrite.bits.set            := stage(3).temp.set
-  io.emazwrite.bits.emaz           := stage(3).temp.result
+  io.emazwrite.bits.emaz0          := stage(3).temp.result0
+  io.emazwrite.bits.emaz1          := stage(3).temp.result1
   when(io.emazwrite.valid) {
     stage(3).state := s_idle
-    when(maxLatch.temp.result < stage(3).temp.result) {
-      maxLatch.temp := stage(3).temp
-    }
   }
 
-  io.max := maxLatch.temp
+  //io.max := maxLatch.temp
   when(reset) { (0 until 4).map(stage(_).state := s_idle ) }
 
   //error analy
@@ -298,7 +301,8 @@ class ExponentialMovingAverageZScore(
   io.erranl.bits.evWZscore    := stage(3).temp.evWZscore     //evWZscore = evMulErr * evStdDevReci
   io.erranl.bits.delta        := stage(3).temp.emazAddend(0)
   io.erranl.bits.deltaNeg     := stage(3).temp.evErrNeg
-  io.erranl.bits.emaz         := io.emazwrite.bits.emaz
+  io.erranl.bits.emaz0        := io.emazwrite.bits.emaz0
+  io.erranl.bits.emaz1        := io.emazwrite.bits.emaz1
 }
 
 class AttackDetectorConfig0 extends Bundle {
@@ -309,10 +313,12 @@ class AttackDetectorConfig0 extends Bundle {
 }
 
 class AttackDetectorConfig1 extends Bundle {
-  val reserve         = UInt(width = 35)
-  val discount        = UInt(width =  4)   //discount factor right shift amount
+  val reserve         = UInt(width = 26)
+  val discount1       = UInt(width =  4)   //discount factor right shift amount
+  val zthreshold1     = UInt(width =  5)   //z-vaule threshold
+  val discount0       = UInt(width =  4)   //discount factor right shift amount
+  val zthreshold0     = UInt(width =  4)   //z-vaule threshold
   val period          = UInt(width = 20)   //sample period
-  val zthreshold      = UInt(width =  4)    //z-vaule threshold
   val enzth           = Bool()             //lowest bit
 }
 
@@ -324,7 +330,8 @@ class AttackDetector(params: InclusiveCacheParameters) extends Module
   val evFracWidth                    = params.setBits
   val evSqIntWidth                   = 2 * evIntWidth
   val evSqFracWidth                  = 2 * evFracWidth
-  val emazIntWidth                   = 4                                              //exponential moving average
+  val emaz0IntWidth                  = 4                                              //exponential moving average
+  val emaz1IntWidth                  = 5                                              //exponential moving average
   val emazFracWidth                  = evFracWidth                                    //exponential moving average
   val mulWidth                       = 3 * evIntWidth + evSqFracWidth
   val mulLatency                     = 2
@@ -348,10 +355,11 @@ class AttackDetector(params: InclusiveCacheParameters) extends Module
       val calsqsum    = Bool().asOutput
       val calemaz     = Bool().asOutput
       val trigger     = Bool().asInput
-      val erranl      = Decoupled(new ErrorAnalysis(params.setBits, evIntWidth, evFracWidth, evSqIntWidth, evSqFracWidth, emazIntWidth, emazFracWidth))
+      val erranl      = Decoupled(new ErrorAnalysis(params.setBits, evIntWidth, evFracWidth, evSqIntWidth, evSqFracWidth, emaz0IntWidth, emaz1IntWidth, emazFracWidth))
     }
   }
-  require(io.config1.zthreshold.getWidth == emazIntWidth)
+  require(io.config1.zthreshold0.getWidth == emaz0IntWidth)
+  require(io.config1.zthreshold1.getWidth == emaz1IntWidth)
 
   val laseSet = (1 << params.setBits) - 1
   def UIntMax(u:        UInt):  UInt = {((1.toLong << u.getWidth) -1).U  }
@@ -384,11 +392,14 @@ class AttackDetector(params: InclusiveCacheParameters) extends Module
     name = "sram_emaz",
     desc = "Zscore RAM",
     size = params.cache.sets,
-    data = UInt(width = emazIntWidth + emazFracWidth)
+    data = UInt(width = emaz1IntWidth + emazFracWidth + emaz0IntWidth + emazFracWidth)
   )
   val mul                        = Module(new PipelinedMultiplier(width = mulWidth, latency = mulLatency, nXpr = 1 << MultiplierTag.SZ))
   val sar                        = Module(new SuccessiveApproximateRegister(evIntWidth + evFracWidth, mulWidth))
-  val emaz                       = Module(new  ExponentialMovingAverageZScore(evIntWidth, evFracWidth, evSqIntWidth, evSqFracWidth, emazIntWidth, emazFracWidth, params.setBits, mulWidth, io.config1.discount.getWidth))
+  val emaz                       = Module(new  ExponentialMovingAverageZScore( evIntWidth,          evFracWidth,
+                                                                               evSqIntWidth,        evSqFracWidth,
+                                                                               emaz0IntWidth,       emaz1IntWidth,    emazFracWidth,
+                                                                               params.setBits,      mulWidth,         io.config1.discount0.getWidth))
   val mulBusyCnt                 = RegInit(0.U(log2Up(mulLatency).W))
   val mulBusy                    = mulBusyCnt =/= mulBusyCnt
   val evicts                     = Wire(UInt(width = evIntWidth))
@@ -401,7 +412,7 @@ class AttackDetector(params: InclusiveCacheParameters) extends Module
   val count_access               = RegInit(0.U(32.W))
   val count_evicts               = RegInit(0.U(32.W))
   val count_period               = RegInit(0.U(20.W))
-  val max_emaz                   = RegInit(0.U((emazIntWidth + emazFracWidth).W))
+  val max_emaz                   = Reg(Vec(2, UInt(0, width = max(emaz0IntWidth, emaz1IntWidth) + emazFracWidth)))
   val evLatch                    = Reg(Vec(2, UInt(0, width = evIntWidth + params.setBits))) //alternate record: half for record half for sample
   val evSum                      = Mux(recordWay === 0.U, evLatch(1), evLatch(0))
   val evAvera                    = evSum >> (params.setBits - evFracWidth)
@@ -418,9 +429,13 @@ class AttackDetector(params: InclusiveCacheParameters) extends Module
   val evMax                      = Mux(recordWay === 0.U, evMaxLatch(1), evMaxLatch(0))
   val evMaxSetIdLatch            = Reg(Vec(2, UInt(0, width = params.setBits))) //alternate record: half for record half for sample
   val evMaxSetId                 = Mux(recordWay === 0.U, evMaxSetIdLatch(1), evMaxSetIdLatch(0))
+  val atdetec                    = Reg(Bool())
 
-
-  io.remap.bits.atdetec := (max_emaz > Cat(io.config1.zthreshold, 0.U(emazFracWidth.W))) //|| evOverFlow
+  io.remap.bits.atdetec := atdetec
+  when((io.config1.zthreshold0 =/= 0.U && max_emaz(0) > Cat(io.config1.zthreshold0, 0.U(emazFracWidth.W))) ||
+       (io.config1.zthreshold1 =/= 0.U && max_emaz(1) > Cat(io.config1.zthreshold1, 0.U(emazFracWidth.W)))) {
+    atdetec := true.B
+  }
 
   io.remap.valid   := false.B
   when(count_access > io.config0.athreshold && io.config0.enath)      { io.remap.valid := true.B }
@@ -438,10 +453,12 @@ class AttackDetector(params: InclusiveCacheParameters) extends Module
     when(recordWay === 1.U && evLatch(1) =/= UIntMax(evLatch(1))) { evLatch(1)      := evLatch(1)     + 1.U  }
   }
   when(!wipeDone) {
+    atdetec          := false.B
     count_access     := 0.U
     count_evicts     := 0.U
     count_period     := 0.U
-    max_emaz         := 0.U
+    max_emaz(0)      := 0.U
+    max_emaz(1)      := 0.U
     evLatch(0)       := 0.U
     evLatch(1)       := 0.U
     evMaxLatch(0)    := 0.U
@@ -463,8 +480,8 @@ class AttackDetector(params: InclusiveCacheParameters) extends Module
   }
 
   class emazwrite extends Bundle {
-    val set    = UInt(width = params.setBits)
-    val emaz   = UInt(width = emazIntWidth + emazFracWidth)
+    val set     = UInt(width = params.setBits)
+    val emaz    = UInt(width = emaz1IntWidth + emazFracWidth + emaz0IntWidth + emazFracWidth)
   }
 
   val calReadEvS1   = Reg(Valid(UInt(width = params.setBits)))
@@ -478,6 +495,7 @@ class AttackDetector(params: InclusiveCacheParameters) extends Module
 
   //state
   when(reset) {
+    atdetec           := false.B
     calReadEvS1.valid := false.B
     calReadEvS2.valid := false.B
   }
@@ -592,7 +610,7 @@ class AttackDetector(params: InclusiveCacheParameters) extends Module
   emazWriteArb.io.in(0).bits.emaz   := 0.U
   emazWriteArb.io.in(1).valid       := emaz.io.emazwrite.valid && state === s_EMAZ
   emazWriteArb.io.in(1).bits.set    := emaz.io.emazwrite.bits.set
-  emazWriteArb.io.in(1).bits.emaz   := emaz.io.emazwrite.bits.emaz
+  emazWriteArb.io.in(1).bits.emaz   := Cat(emaz.io.emazwrite.bits.emaz1, emaz.io.emazwrite.bits.emaz0)
   when(emazWriteArb.io.out.valid) { sram_emaz.write(emazWriteArb.io.out.bits.set, emazWriteArb.io.out.bits.emaz) }
   emazWriteArb.io.out.ready         := true.B
 
@@ -646,11 +664,13 @@ class AttackDetector(params: InclusiveCacheParameters) extends Module
   emazReqQue.io.enq.bits.evErrNeg      := evErrNeg
   emazReqQue.io.enq.bits.evStdDevReci  := evStdDevReci
   emaz.io.req                          <> emazReqQue.io.deq
-  emaz.io.req.bits.discount            := io.config1.discount
+  emaz.io.req.bits.discount(0)         := io.config1.discount0
+  emaz.io.req.bits.discount(1 )        := io.config1.discount1
   //emaz: resp
   //write sram_emaz
   when(emaz.io.emazwrite.valid) {
-    max_emaz := Mux(emaz.io.emazwrite.bits.emaz > max_emaz, emaz.io.emazwrite.bits.emaz, max_emaz)
+    when(emaz.io.emazwrite.bits.emaz0 > max_emaz(0)) { max_emaz(0) := emaz.io.emazwrite.bits.emaz0 }
+    when(emaz.io.emazwrite.bits.emaz1 > max_emaz(1)) { max_emaz(1) := emaz.io.emazwrite.bits.emaz1 }
   }
 
   //abort calculate
@@ -683,7 +703,7 @@ class AttackDetector(params: InclusiveCacheParameters) extends Module
   io.debug.erranl.bits.evSqAvera         := evSqAvera
   io.debug.erranl.bits.evStdDev          := evStdDev
   io.debug.erranl.bits.evStdDevReci      := evStdDevReci
-  io.debug.erranl.bits.detected          := io.remap.valid
+  io.debug.erranl.bits.detected          := atdetec
   require(io.debug.erranl.bits.evSum.getWidth      == evSum.getWidth     )
   require(io.debug.erranl.bits.evSqSum.getWidth    == evSqSum.getWidth   )
   require(io.debug.erranl.bits.evSqAvera.getWidth  == evSqAvera.getWidth )
@@ -715,15 +735,16 @@ class AttackDetectorTrace(params: InclusiveCacheParameters) extends Module {
   val evFracWidth                    = attackdetector.evFracWidth
   val evSqIntWidth                   = attackdetector.evSqIntWidth
   val evSqFracWidth                  = attackdetector.evSqFracWidth
-  val emazIntWidth                   = attackdetector.emazIntWidth         //exponential moving average
+  val emaz0IntWidth                  = attackdetector.emaz0IntWidth         //exponential moving average
+  val emaz1IntWidth                  = attackdetector.emaz1IntWidth         //exponential moving average
   val emazFracWidth                  = attackdetector.emazFracWidth        //exponential moving average
   require(evFracWidth   > 2)
   require(emazFracWidth > 1)
   require(evFracWidth >= emazFracWidth)
 
   val io = new Bundle {
-    val tracein      = Flipped(Decoupled(new ErrorAnalysis(params.setBits, evIntWidth, evFracWidth, evSqIntWidth, evSqFracWidth, emazIntWidth, emazFracWidth)))
-    val traceout     = Decoupled(new ErrorAnalysis(params.setBits, evIntWidth, evFracWidth, evSqIntWidth, evSqFracWidth, emazIntWidth, emazFracWidth))
+    val tracein      = Flipped(Decoupled(new ErrorAnalysis(params.setBits, evIntWidth, evFracWidth, evSqIntWidth, evSqFracWidth, emaz0IntWidth, emaz1IntWidth, emazFracWidth)))
+    val traceout     = Decoupled(new ErrorAnalysis(params.setBits, evIntWidth, evFracWidth, evSqIntWidth, evSqFracWidth, emaz0IntWidth, emaz1IntWidth, emazFracWidth))
     val remapfire    = Bool().asOutput
     val mix          = UInt(width = 128)
   }
@@ -733,9 +754,9 @@ class AttackDetectorTrace(params: InclusiveCacheParameters) extends Module {
   //val evictsr       = Reg(Vec(params.cache.sets, UInt(0, width = io.tracein.ev.getWidth)))
   //val erranll       = Reg(new ErrorAnalysis(params.setBits, evIntWidth, evFracWidth, evSqIntWidth, evSqFracWidth, emazIntWidth, emazFracWidth))
   //val erranlr       = Reg(new ErrorAnalysis(params.setBits, evIntWidth, evFracWidth, evSqIntWidth, evSqFracWidth, emazIntWidth, emazFracWidth))
-  val tracein       = Reg(new ErrorAnalysis(params.setBits, evIntWidth, evFracWidth, evSqIntWidth, evSqFracWidth, emazIntWidth, emazFracWidth))
-  val tracecheckR   = Reg(Vec(2, new ErrorAnalysis(params.setBits, evIntWidth, evFracWidth, evSqIntWidth, evSqFracWidth, emazIntWidth, emazFracWidth)))
-  val tracecheck    = Wire(new ErrorAnalysis(params.setBits, evIntWidth, evFracWidth, evSqIntWidth, evSqFracWidth, emazIntWidth, emazFracWidth))
+  val tracein       = Reg(new ErrorAnalysis(params.setBits, evIntWidth, evFracWidth, evSqIntWidth, evSqFracWidth, emaz0IntWidth, emaz1IntWidth, emazFracWidth))
+  val tracecheckR   = Reg(Vec(2, new ErrorAnalysis(params.setBits, evIntWidth, evFracWidth, evSqIntWidth, evSqFracWidth, emaz0IntWidth, emaz1IntWidth, emazFracWidth)))
+  val tracecheck    = Wire(new ErrorAnalysis(params.setBits, evIntWidth, evFracWidth, evSqIntWidth, evSqFracWidth, emaz0IntWidth, emaz1IntWidth, emazFracWidth))
 
   val trigger     = Reg(UInt(0, width = 8))
   when( trigger =/= 0.U ) { trigger := trigger - 1.U }
@@ -748,9 +769,11 @@ class AttackDetectorTrace(params: InclusiveCacheParameters) extends Module {
   attackdetector.io.config0.athreshold         := 163840.U
   attackdetector.io.config0.eneth              := false.B
   attackdetector.io.config0.ethreshold         := 163840.U
-  attackdetector.io.config1.discount           := 5.U
+  attackdetector.io.config1.discount1          := 3.U
+  attackdetector.io.config1.zthreshold1        := 0.U
+  attackdetector.io.config1.discount0          := 5.U
+  attackdetector.io.config1.zthreshold0        := 5.U
   attackdetector.io.config1.period             := 4096.U
-  attackdetector.io.config1.zthreshold         := 5.U
   attackdetector.io.config1.enzth              := true.B
   io.tracein.ready                             := tracein.ev === 0.U
   when( attackdetector.io.debug.calculate ) {

@@ -155,9 +155,11 @@ class InclusiveCache(
       atDetConfig0R.enath           := true.B
       atDetConfig0R.ethreshold      := 0.U
       atDetConfig0R.eneth           := true.B  //lowest bit
-      atDetConfig1R.discount        := 5.U
+      atDetConfig1R.discount1       := 3.U     // 1/8  = >> 3
+      atDetConfig1R.zthreshold1     := 10.U
+      atDetConfig1R.discount0       := 5.U     // 1/32 = >> 5
+      atDetConfig1R.zthreshold0     := 5.U
       atDetConfig1R.period          := 4096.U
-      atDetConfig1R.zthreshold      := 5.U
       atDetConfig1R.enzth           := true.B  //lowest bit
    }
 
