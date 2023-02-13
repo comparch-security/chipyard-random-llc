@@ -151,7 +151,7 @@ trait HasRandomBroadCaster { this: sifive.blocks.inclusivecache.InclusiveCache =
     ranGen1          := L2SetIdxHashFun.PermutationStage(L2SetIdxHashFun.tx3nt(schedulers.map(_.io.ranMixOut).reduce(_^_), 1))
     ranGen2          := L2SetIdxHashFun.PermutationStage(L2SetIdxHashFun.tx3nt(ranGen1 ^ lfsr, 2))
     ranGen3          := L2SetIdxHashFun.tx3nt(ranGen2, 3)
-    ranGen4          := L2SetIdxHashFun.XorConcentrate(ranGen3, ranGen4.getWidth)*/
+    ranGen4          := L2SetIdxHashFun.XorConcentrate(ranGen3, ranGen4.getWidth)
     val sendRanQ      = Module(new Queue(schedulers(0).io.sendRan.bits.cloneType, 1, pipe = false, flow = false))
     val sendRanArb    = Module(new RRArbiter(schedulers(0).io.sendRan.bits.cloneType, schedulers.length))
     schedulers zip sendRanArb.io.in map { case(s, arb) => {
@@ -162,8 +162,9 @@ trait HasRandomBroadCaster { this: sifive.blocks.inclusivecache.InclusiveCache =
       //require(s.io.ranMixOut.getWidth == ranGen1.getWidth)
       //require(s.io.ranMixIn.getWidth  <= ranGen4.getWidth)
     }}
-    //sendRanQ.io.enq        <> sendRanArb.io.out
-    //ranbcterio.send        <> sendRanQ.io.deq
+    sendRanQ.io.enq        <> sendRanArb.io.out*/
+    schedulers(0).io.ranMixIn := lfsr
+    ranbcterio.send           <> schedulers(0).io.sendRan
   }
 }
 
