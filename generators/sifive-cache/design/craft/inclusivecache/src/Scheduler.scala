@@ -414,13 +414,13 @@ class Scheduler(params: InclusiveCacheParameters) extends Module
     import chisel3.util.random.FibonacciLFSR
     val mix_c = Reg(io.in.c.bits.data.cloneType)
     val mix_d = Reg(io.in.d.bits.data.cloneType)
-    mix_c := Mux(io.in.c.valid || io.out.c.valid, mix_c + (io.in.c.bits.data ^ io.out.c.bits.data), mix_c - mix_d)
-    mix_d := Mux(io.in.d.valid || io.out.d.valid, mix_d + (io.in.d.bits.data ^ io.out.d.bits.data), mix_c + mix_d)
+    mix_c := mix_c + (io.in.c.bits.data ^ io.out.c.bits.data)
+    mix_d := mix_d + (io.in.d.bits.data ^ io.out.d.bits.data)
     when(reset) {
       mix_c := "h0123456789abcdef".U
       mix_d := "hfedcba9876543210".U
     }
-    io.ranMixOut := Cat(mix_c, mix_d)
+    //io.ranMixOut := Cat(mix_c, mix_d)
     remaper.io.rtwipeDone       := randomtable.io.wipeDone
     remaper.io.rtsendDone       := randomtable.io.sendDone
     randomtable.io.cmd          := remaper.io.rtcmd

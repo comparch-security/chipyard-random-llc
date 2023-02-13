@@ -143,27 +143,27 @@ trait HasRandomBroadCaster { this: sifive.blocks.inclusivecache.InclusiveCache =
   }
   def createRandomBroadCaster(schedulers: Seq[Scheduler]) = {
     import chisel3.util.random.FibonacciLFSR
-    val lfsr          = FibonacciLFSR.maxPeriod(128, true.B, seed = Some(123456789))
-    val ranGen1       = Reg(UInt(width =     schedulers(0).io.ranMixOut.getWidth))
+    val lfsr          = FibonacciLFSR.maxPeriod(64, true.B, seed = Some(123456789))
+    /*val ranGen1       = Reg(UInt(width =     schedulers(0).io.ranMixOut.getWidth))
     val ranGen2       = Reg(UInt(width =     128))
     val ranGen3       = Reg(UInt(width =     128))
     val ranGen4       = Reg(UInt(width =     schedulers(0).io.ranMixIn.getWidth))
     ranGen1          := L2SetIdxHashFun.PermutationStage(L2SetIdxHashFun.tx3nt(schedulers.map(_.io.ranMixOut).reduce(_^_), 1))
     ranGen2          := L2SetIdxHashFun.PermutationStage(L2SetIdxHashFun.tx3nt(ranGen1 ^ lfsr, 2))
     ranGen3          := L2SetIdxHashFun.tx3nt(ranGen2, 3)
-    ranGen4          := L2SetIdxHashFun.XorConcentrate(ranGen3, ranGen4.getWidth)
+    ranGen4          := L2SetIdxHashFun.XorConcentrate(ranGen3, ranGen4.getWidth)*/
     val sendRanQ      = Module(new Queue(schedulers(0).io.sendRan.bits.cloneType, 1, pipe = false, flow = false))
     val sendRanArb    = Module(new RRArbiter(schedulers(0).io.sendRan.bits.cloneType, schedulers.length))
     schedulers zip sendRanArb.io.in map { case(s, arb) => {
-      s.io.ranMixIn       := ranGen4
+      s.io.ranMixIn       := lfsr
       arb.valid           := s.io.sendRan.valid
       arb.bits            := s.io.sendRan.bits
       s.io.sendRan.ready  := arb.ready
-      require(s.io.ranMixOut.getWidth == ranGen1.getWidth)
-      require(s.io.ranMixIn.getWidth  <= ranGen4.getWidth)
+      //require(s.io.ranMixOut.getWidth == ranGen1.getWidth)
+      //require(s.io.ranMixIn.getWidth  <= ranGen4.getWidth)
     }}
-    sendRanQ.io.enq        <> sendRanArb.io.out
-    ranbcterio.send        <> sendRanQ.io.deq
+    //sendRanQ.io.enq        <> sendRanArb.io.out
+    //ranbcterio.send        <> sendRanQ.io.deq
   }
 }
 
@@ -415,7 +415,7 @@ class DataBlockSwaper(params: InclusiveCacheParameters) extends Module
     when(io.req(b).valid) { assert(s_idle.andR) }
     when(io.req(b).valid && io.req(b).bits.wen) { swap_data(b)(io.req(b).bits.index) := io.req(b).bits.data }
     //io.resp(b)   := swap_data(b)(RegEnable(io.req(b).bits.index(beatBitspb-1, 0), io.req(b).valid && !io.req(b).bits.wen))
-    io.resp(b)   := RegEnable(swap_data(b)(io.req(b).bits.index), io.req(b).valid && !io.req(b).bits.wen)
+    io.resp(b)   := swap_data(b)(io.req(b).bits.index)
 
     //remap
     //io.rreq
