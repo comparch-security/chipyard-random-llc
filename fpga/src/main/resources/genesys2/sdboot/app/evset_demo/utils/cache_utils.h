@@ -6,7 +6,7 @@
 #define WAYS                16
 #define BLKS                (SETS*WAYS)
 #define THRL2MISS           60
-#define EVSIZE              (4*WAYS)
+#define EVSIZE              (1*WAYS)
 
 
 uint64_t*    evset[EVSIZE];

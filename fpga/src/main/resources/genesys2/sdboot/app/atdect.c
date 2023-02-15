@@ -15,7 +15,7 @@
 #define   L2_CTRL_PAGE_OFFSET     (L2_CTRL_BASE & 0XFFFFF000)
 
 int main(int argc, char **argv) {
-   if(argc != 7) {
+   if(argc != 8) {
     //                      argv[1]             argv[2]      argv[3]    argv[4]         argv[5]      argv[6]         argv[7]
     printf("\nuseage:  [evict_threshold] [access_threshold] [period] [z_threshold0]  [discount0] [z_threshold1]  [discount1] \n");
     printf("example:          1024              8192          4096        5             5           20               3\n");
@@ -59,7 +59,7 @@ int main(int argc, char **argv) {
    *(volatile uint64_t *)(map_base+L2_CTRL_BASE_OFFSET+L2_ATDECT_CONFIG0)=atdet_config0;
    *(volatile uint64_t *)(map_base+L2_CTRL_BASE_OFFSET+L2_ATDECT_CONFIG1)=atdet_config1;
    sleep(1);
-   check =  *(volatile uint64_t *)(map_base+L2_CTRL_BASE_OFFSET+L2_ATDECT_CONFIG0);
+   uint64_t check =  *(volatile uint64_t *)(map_base+L2_CTRL_BASE_OFFSET+L2_ATDECT_CONFIG0);
    printf("check L2_ATDECT_CONFIG0 %lx.\n", check);
    if(check != atdet_config0) { printf("not match "); return 0;}
    sleep(1);

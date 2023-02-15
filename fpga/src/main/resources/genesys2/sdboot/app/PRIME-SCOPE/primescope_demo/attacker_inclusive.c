@@ -72,7 +72,7 @@ void attacker(int test_option) {
 ////////////////////////////////////////////////////////////////////////////////
 
 void test_primescope() {
-
+/*
   //////////////////////////////////////////////////////////////////////////////
   // Include the function macros
   #include "macros.h"
@@ -172,6 +172,7 @@ repeat_evset:
   }
 
   printf("\tSuccess %d/%d\n", success, TEST_LEN);
+  */
 }
 
 void test_eviction_set_creation() {
@@ -191,8 +192,8 @@ void test_eviction_set_creation() {
     printf("PPP PRIME_LEN [%d-%d]", ppp_prime_len_min, ppp_prime_len_max);
   } else {
     printf("CT");
-    if(disable_already_found)  printf(" DISABLE_ALREADY_FOUND");
-    else                       printf(" ENABLE_ALREADY_FOUND");
+    if(enable_already_found)   printf(" ENABLE_ALREADY_FOUND");
+    else                       printf(" DISABLE_ALREADY_FOUND");
     if(enable_cacheline_check) printf(" ENABLE_CACHELINE_CHECK");
   }
 
@@ -209,19 +210,12 @@ void test_eviction_set_creation() {
   uint64_t target_addr = (uint64_t)&shared_mem[0];
   int thrLLC, thrRAM, thrDET, thrL1;
   configure_thresholds(target_addr, &thrL1, &thrLLC, &thrRAM, &thrDET);
-  if(1) {
-    printf("\nThresholds Configured\n\n");
-    printf("\tL1/L2    : %u\n", thrL1   );
-    printf("\tLLC      : %u\n", thrLLC  );
-    printf("\tRAM      : %u\n", thrRAM  );
-    printf("\tTHRESHOLD: %u\n", thrDET  );
-  }
 
   // Only need helper for clean threshold calibration
-  KILL_HELPER(); 
+  KILL_HELPER();
+  int access = 0;
 
-  for (int t=0; t<TEST_LEN; t++) {
-
+  for (int t=0; t<test_len; t++) {
     ////////////////////////////////////////////////////////////////////////////
     // Pick a new random target_addr from shared_mem
 
@@ -257,7 +251,8 @@ void test_eviction_set_creation() {
                       EV_LLC,
                       evict_mem,
                       HUGE_PAGES_AVAILABLE,
-                      thrDET);
+                      thrDET,
+                      &access);
     } else {
       rv =  ppp_evset( evsetList_ptr,
                        (char*)target_addr,
@@ -266,7 +261,8 @@ void test_eviction_set_creation() {
                        HUGE_PAGES_AVAILABLE,
                        thrDET,
                        ppp_prime_len_min,
-                       ppp_prime_len_max);
+                       ppp_prime_len_max,
+                       &access);
     }
     if (rv != PS_SUCCESS) {
       if (++attempt_counter < MAX_RETRY)
@@ -285,14 +281,14 @@ void test_eviction_set_creation() {
     }
     if (attempt_counter ==0 || attempt_counter<MAX_RETRY) {
       succ++;
-      printf(GREEN"\r\tPID %d Success. succ/try %d/%d Constucted with %d retries aver %5.3fs [%5.3f-%5.3f-%5.3f]s"NC,
-        getpid(), succ, t+1, attempt_counter, (double)timeAll/1000/(t+1), (double)timeLo, (double)timeMedi, (double)timeHi);
+      printf(GREEN"\r\tPID %d Success. succ/try %d/%d acc %d Constucted with %d retries aver %5.3fs [%5.3f-%5.3f-%5.3f]s"NC,
+        getpid(), succ, t+1, access, attempt_counter, (double)timeAll/1000/(t+1), (double)timeLo, (double)timeMedi, (double)timeHi);
       if(succ<=2 || succ==10 || t==100) printf("\n");
     }
     else {
       fail++;
-      printf(RED"\r\tPID %d Fail.rv %d succ/try %d/%d Could not construct aver %5.2fs [%5.3f-%5.3f-%5.3f]s"NC,
-        getpid(), rv, succ, t+1, (double)timeAll/1000/(t+1), (double)timeLo, (double)timeMedi, (double)timeHi);
+      printf(RED"\r\tPID %d Fail.rv %d succ/try %d/%d  acc %d Could not construct aver %5.2fs [%5.3f-%5.3f-%5.3f]s"NC,
+        getpid(), rv, succ, t+1, access, (double)timeAll/1000/(t+1), (double)timeLo, (double)timeMedi, (double)timeHi);
       if(fail<=2 || fail==10 || t==100) printf("\n");
     }
     if(enable_debug_log) {
@@ -339,6 +335,27 @@ void configure_thresholds(
   *thrRAM = timing[1][(int)0.50*THRESHOLD_TEST_COUNT];
   *thrL1  = timing[2][(int)0.10*THRESHOLD_TEST_COUNT];
   *thrDET = (2*(*thrRAM) + (*thrLLC))/3;
+  if(*thrDET < timing[1][0])  *thrDET = timing[1][0] - 1; //*thrDET = (*thrDET + 2*timing[1][0]) / 3;
+
+  printf("\nThresholds Configured\n\n");
+  printf("\tL1/L2    : %d  [%3d-%3d-%3d-%3d-%3d-%3d-%3d-%3d-%3d-%3d-%3d]\n", *thrL1,  timing[2][0],
+              timing[2][(int)0.10*THRESHOLD_TEST_COUNT],  timing[2][(int)0.20*THRESHOLD_TEST_COUNT], timing[2][(int)0.30*THRESHOLD_TEST_COUNT],
+              timing[2][(int)0.40*THRESHOLD_TEST_COUNT],  timing[2][(int)0.50*THRESHOLD_TEST_COUNT], timing[2][(int)0.60*THRESHOLD_TEST_COUNT],
+              timing[2][(int)0.70*THRESHOLD_TEST_COUNT],  timing[2][(int)0.80*THRESHOLD_TEST_COUNT], timing[2][(int)0.90*THRESHOLD_TEST_COUNT],
+              timing[2][THRESHOLD_TEST_COUNT-1]);
+  printf("\tLLC      : %d  [%3d-%3d-%3d-%3d-%3d-%3d-%3d-%3d-%3d-%3d-%3d]\n", *thrLLC, timing[0][0],
+              timing[0][(int)0.10*THRESHOLD_TEST_COUNT],  timing[0][(int)0.20*THRESHOLD_TEST_COUNT], timing[0][(int)0.30*THRESHOLD_TEST_COUNT],
+              timing[0][(int)0.40*THRESHOLD_TEST_COUNT],  timing[0][(int)0.50*THRESHOLD_TEST_COUNT], timing[0][(int)0.60*THRESHOLD_TEST_COUNT],
+              timing[0][(int)0.70*THRESHOLD_TEST_COUNT],  timing[0][(int)0.80*THRESHOLD_TEST_COUNT], timing[0][(int)0.90*THRESHOLD_TEST_COUNT],
+              timing[0][THRESHOLD_TEST_COUNT-1]);
+  printf("\tRAM      : %d  [%3d-%3d-%3d-%3d-%3d-%3d-%3d-%3d-%3d-%3d-%3d]\n", *thrRAM, timing[1][0],
+              timing[1][(int)0.10*THRESHOLD_TEST_COUNT],  timing[1][(int)0.20*THRESHOLD_TEST_COUNT], timing[1][(int)0.30*THRESHOLD_TEST_COUNT],
+              timing[1][(int)0.40*THRESHOLD_TEST_COUNT],  timing[1][(int)0.50*THRESHOLD_TEST_COUNT], timing[1][(int)0.60*THRESHOLD_TEST_COUNT],
+              timing[1][(int)0.70*THRESHOLD_TEST_COUNT],  timing[1][(int)0.80*THRESHOLD_TEST_COUNT], timing[1][(int)0.90*THRESHOLD_TEST_COUNT],
+    timing[1][THRESHOLD_TEST_COUNT-1]);
+  printf("\tTHRESHOLD: %d  \n", *thrDET  );
+
+
   //*thrDET = *thrRAM-1;
 }
 

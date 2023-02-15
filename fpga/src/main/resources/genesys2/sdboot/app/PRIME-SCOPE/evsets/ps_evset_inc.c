@@ -22,7 +22,7 @@ int ps_evset_reduce(Elem **evset, char *victim, int len, int threshold);
 // Definition of functions
 
 int
-ps_evset(Elem **evset, char *victim, int len, uint64_t* page, int is_huge, int threshold)
+ps_evset(Elem **evset, char *victim, int len, uint64_t* page, int is_huge, int threshold, int *access)
 {
   //int is_list_empty = 1; // append works the same for empty list, no special treatment needed
   int list_len = 0;
@@ -31,6 +31,7 @@ ps_evset(Elem **evset, char *victim, int len, uint64_t* page, int is_huge, int t
   int counter_attempt = 0;
   int i;
   int counter_guess, try_guesses, time;
+  *access = 0;
 
   Elem *evset_last = NULL;
   *evset = NULL;
@@ -78,7 +79,7 @@ extend:
     maccess((void*)victim);
     asm volatile("fence");
 
-    if(disable_already_found==0) {
+    if(enable_already_found==1) {
       traverse_zigzag_victim(*evset, (void*)victim); 
       traverse_zigzag_victim(*evset, (void*)victim); 
     }
@@ -90,20 +91,19 @@ extend:
       //maccess((void*)guess_pool[guess_index]);
       time_mread((void*)guess_pool[guess_index]);
       asm volatile("fence");
+      *access = *access + 1;
 
       // Measure TARGET
-      /*
       if(enable_cacheline_check) {
         time = threshold+1;
         if(maccess_check(victim, (void*)victim_phy)) time = threshold>>2;
       } else {
         time = time_mread((void*)victim);
-      }*/
-      time = time_mread((void*)victim);
+      }
 
       // If TARGET is evicted
       #if IGNORE_VERY_SLOW == 1
-      if (time>threshold && time < 2*threshold) { 
+      if (time>threshold && time < 3*threshold) {
       #else
       if (time>threshold) { 
       #endif
@@ -135,14 +135,11 @@ extend:
     }
   }
 
-    #if ENABLE_EXTENSION 
-    // If list of minimal size cannot evict victim, extend it
-    if (!ps_evset_test(evset, victim, threshold, 10, EVTEST_MEDIAN)) { 
-      if (++len<MAX_EXTENSION)
+    if (!ps_evset_test(evset, victim, threshold, 3, EVTEST_ALLPASS)) {
+      if (++len< ct_extend_len_max)
         goto extend; // Obtain one more address
       return PS_FAIL_EXTENSION;
     }
-    #endif
 
     #if ENABLE_REDUCTION
     // If list needed to be extended, reduce it to minimal
@@ -164,7 +161,7 @@ extend:
 }
 
 int
-ppp_evset(Elem **evset, char *victim, int len, uint64_t* page, int is_huge, int threshold, int prime_len_min, int prime_len_max)
+ppp_evset(Elem **evset, char *victim, int len, uint64_t* page, int is_huge, int threshold, int prime_len_min, int prime_len_max, int *access)
 {
   #define CHECKS  55
   static uint64_t prime_index  = 0;
@@ -178,6 +175,7 @@ ppp_evset(Elem **evset, char *victim, int len, uint64_t* page, int is_huge, int 
   uint64_t *prb_mask=NULL, *prb_pool=NULL; 
   uint64_t  prun_len=0, prb1_len=0, prb2_len=0;
   uint64_t prime_len_try = prime_len_min;
+  *access =0;
 
   uint64_t max_pool_size = EVICT_LLC_SIZE / CACHEBLOCK_PERIOD;
   uint64_t offset = CACHEBLOCK_PERIOD;
@@ -195,6 +193,7 @@ ppp_evset(Elem **evset, char *victim, int len, uint64_t* page, int is_huge, int 
     prime = ((uint64_t)page + ((uint64_t)victim & (CACHEBLOCK_PERIOD-1)) + prime_index*CACHEBLOCK_PERIOD);
     for(i = 0; i < prime_len; i++) {
       prime += offset;
+      *access = *access + 1;
       maccess((void*)prime);
     }
     prime_index  += prime_len;
@@ -203,6 +202,7 @@ ppp_evset(Elem **evset, char *victim, int len, uint64_t* page, int is_huge, int 
     maccess((void*)victim); maccess((void*)victim);
     prime_start = ((uint64_t)page + ((uint64_t)victim & (CACHEBLOCK_PERIOD-1)) + prime_index*CACHEBLOCK_PERIOD);
     for(i=0, prime=prime_start; i < prime_len; prime += offset) {
+      *access = *access + 1;
       maccess((void*)prime);
       prb_mask[i>>6] |= ((uint64_t)1 << (i & 0x3f));
       i++;
@@ -219,6 +219,7 @@ ppp_evset(Elem **evset, char *victim, int len, uint64_t* page, int is_huge, int 
     for(i = 0; i<1; i++) {
       probe = prime_start ;
       for(j = 0; j<prime_len; j++, probe += offset) {
+        *access = *access + 1;
         time = time_mread((void*)probe);
         if(time > threshold) { //remove miss
           if(((prb_mask[j>>6] >> (j & 0x3f)) & (uint64_t)0x01) == 0x01) {
@@ -249,6 +250,7 @@ ppp_evset(Elem **evset, char *victim, int len, uint64_t* page, int is_huge, int 
         i++; probe += offset;
       } while((mask & 0x01) == 0 && i < prime_len);
       if((mask & 0x01) == 0) break;
+      *access = *access + 1;
       time = time_mread((void*)probe);
       if(time > threshold) {
         prb1_len++;
@@ -276,6 +278,7 @@ ppp_evset(Elem **evset, char *victim, int len, uint64_t* page, int is_huge, int 
         i++; probe += offset;
       } while((mask & 0x01) == 0 && i < prime_len);
       if((mask & 0x01) == 0) break;
+            *access = *access + 1;
       time = time_mread((void*)probe);
       //time = threshold + 10;
       if(time > threshold) {

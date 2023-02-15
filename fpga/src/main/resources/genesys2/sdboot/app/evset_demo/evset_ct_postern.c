@@ -37,19 +37,31 @@ void main(int argc, char **argv) {
   uint8_t    speed   ;
   uint8_t    evsize[2]     ;
   uint32_t   evsizeAll[2]  ;
+  uint32_t   access[2]     ;
+  uint32_t   accessAll[2]  ;
   uint8_t    failed  ;
   uint16_t   fails[2];
   uint32_t   acctime;
   uint8_t    hit[2]    ;
   uint16_t   reqtest   ;
+  uint16_t   reqspeed  ;
   cacheBlock_t*    target[2];
   cacheBlock_t*    probe[2];
   cacheBlock_t*    drain;
   cacheBlock_t*    drainStart;
   clock_t    start_time[2], end_time[2], all_time[2] = {0};
 
-  reqtest   = strtol(argv[1],0 ,0);
+  if(argc != 3) {
+    //                  argv[1]     argv[2]
+    printf("\nuseage:  [tests]      [speeds] \n");
+    printf("example:     100           0     \n");
+    printf("example:     100           1     \n");
+    return ;
+  }
+  reqtest    = strtol(argv[1],0 ,0);
+  reqspeed   = strtol(argv[2],0 ,0);
   if(reqtest > 6500)      reqtest   = 6500;
+  reqspeed   = reqspeed & 0x01;
 
   uint32_t dev_fd = open("/dev/mem", O_RDWR);
   if(dev_fd < 0) { printf("open(/dev/mem) failed.\n"); return; }
@@ -63,7 +75,7 @@ void main(int argc, char **argv) {
 
   target[0] = (cacheBlock_t*)dram_base;
   probe[0]  = target[0] + 1;
-  printf("evset_ct in lru cache TESTS %d\n", reqtest);
+  printf("evset_ct in lru cache TESTS %d SPEED %d\n", reqtest, reqspeed);
 
   failed      = 1;
   fails[0]    = 0; fails[1]    = 0;
@@ -71,14 +83,15 @@ void main(int argc, char **argv) {
   probe[0]    = (cacheBlock_t*)dram_base;
   drainStart  = (cacheBlock_t*)(dram_base + DRAM_TEST_SIZE) - 32*BLKS;
   drain       = drainStart;
-  evsizeAll[0] = 0; evsizeAll[1]=0;
-  for(uint16_t tests = 0, speed = 0; tests < reqtest; tests++) {
-    speed = (speed+1) & 0x01;
+  evsizeAll[0] = 0; evsizeAll[1] = 0;
+  accessAll[0] = 0; accessAll[1] = 0;
+  for(uint16_t tests = 0, speed = reqspeed; tests < reqtest; tests++) {
     if(++target[0] > drainStart - 10) target[0] = (cacheBlock_t*)dram_base;
     for(i = 0; i<EVSIZE; i++) evset[i]=NULL;
     evsize[speed] = 0;
-    for(speed = 0; speed < 2; speed++) {
+    for(speed = reqspeed; speed < 2; speed = speed + 10) {
       start_time[speed] = clock();
+      access[speed] = 0;
       for(evsize[speed] = 0; evsize[speed] < EVSIZE; ) {
         if(++probe[0] >= drainStart - 2*BLKS) probe[0] = (cacheBlock_t*)dram_base;
         if(((uint64_t)(probe[0]) & 0x0fff) == ((uint64_t)target[0] & 0x0fff)) probe[0]++;
@@ -97,6 +110,7 @@ void main(int argc, char **argv) {
           accessWithfence((void *)probe[0]);
           if(clcheck_f((void *)target[0]) == 0) hit[speed] = 0;
           acctime = timeAccessNoinline((void *)target[0]);
+          access[speed]++; accessAll[speed]++;
           //if(60 < acctime && acctime < 130) hit[speed] = 0;
         }
         for(i = 0; i < evsize[speed]; i++) { if((uint64_t *)probe == evset[i]) break; }
@@ -123,15 +137,15 @@ void main(int argc, char **argv) {
       evsizeAll[speed]  = evsizeAll[speed] + evsize[speed];
       //drain out
       if(drain > drainStart + 8*BLKS) drain = drainStart;
-      for(i = 0; i < 3*BLKS; accessNofence((void *)drain++), i++);
+      //for(i = 0; i < 3*BLKS; accessNofence((void *)drain++), i++);
       sched_yield();
     }
 
-    printf("%4d %p ", tests+1, target[0]);
-    for(speed = 0; speed < 2; speed++) {
+    printf("%4d %p %d ", tests+1, target[0], reqspeed);
+    for(speed = reqspeed; speed < 2; speed = speed + 10) {
       if(hit[speed]!=0)  { printf("\033[0m\033[1;31m%s\033[0m", "fail:"); fails[speed]++;}
       else                 printf("\033[0m\033[1;32m%s\033[0m", "succ:");
-      printf("[%3d/%3d/%3d/%4.1f", fails[speed], hit[speed], evsize[speed], (float)evsizeAll[speed]/(tests+1));
+      printf("[%3d/%3d/%3d/%5d/%9d/%4.1f", fails[speed], hit[speed], evsize[speed], access[speed], accessAll[speed], (float)evsizeAll[speed]/(tests+1));
       printf("/%5.2fs/%5.2fs]",     (float)(end_time[speed] - start_time[speed])/CLOCKS_PER_SEC, (float)all_time[speed]/CLOCKS_PER_SEC/(tests+1));
     }
      printf("\n");
