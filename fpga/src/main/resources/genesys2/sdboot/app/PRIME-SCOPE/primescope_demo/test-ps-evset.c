@@ -35,16 +35,20 @@ void test_eviction_set_creation();
 
 ////////////////////////////////////////////////////////////////////////////////
 
+//  ./test-ps-evset --ppp_prime_len_min=14336 --ppp_prime_len_max=18430 --test_len=200 --auto_dect_config > dttest_ppp
+
+
 int main(int argc, char **argv)
 {
   enable_already_found       = 0;
   enable_cacheline_check     = 0;
   enable_debug_log           = 0;
-  ppp_prime_len_min          = 0;  //for example ppp_prime_len_min=14336 = 1024*14
-  ppp_prime_len_max          = 0;  //for example ppp_prime_len_max=22528 = 1024*22
+  ppp_prime_len_min          = 0;  //for example --ppp_prime_len_min=14336 = 1024*14
+  ppp_prime_len_max          = 0;  //for example --ppp_prime_len_max=18430 = 1024*18
   enable_ppp_prime_clcheck   = 0;
   ct_extend_len_max          = LLC_WAYS;
   test_len                   = 100;
+  auto_dect_config           = 0;
 
   printf("\texample:\n");
   printf("--enable_already_found --test_len=100\n");
@@ -60,6 +64,7 @@ int main(int argc, char **argv)
       {"enable_ppp_prime_clcheck"        , no_argument,          0,  0},
       {"ct_extend_len_max"               , required_argument,    0,  0},
       {"test_len"                        , required_argument,    0,  0},
+      {"auto_dect_config"                , 0,                    0,  0},
       {0                                 , 0,                    0,  0}};
 
     if (getopt_long(argc, argv, "", long_options, &option_index) == -1)
@@ -73,6 +78,7 @@ int main(int argc, char **argv)
     if(option_index == 5) enable_ppp_prime_clcheck          = 1;
     if(option_index == 6) ct_extend_len_max                 = atoi(optarg);
     if(option_index == 7) test_len                          = atoi(optarg);
+    if(option_index == 8) auto_dect_config                  = 1;
   }
   if(ppp_prime_len_min > ppp_prime_len_max) ppp_prime_len_max = ppp_prime_len_min +  (ppp_prime_len_min >> 1);
   if(ct_extend_len_max <   LLC_WAYS) { ct_extend_len_max  =   LLC_WAYS; }
@@ -86,6 +92,7 @@ int main(int argc, char **argv)
   printf("\tenable_ppp_prime_clcheck    %d\n", enable_ppp_prime_clcheck);
   printf("\tct_extend_len_max           %d\n", ct_extend_len_max);
   printf("\ttest_len                    %d\n", test_len);
+  printf("\tauto_dect_config            %d\n", auto_dect_config);
   //////////////////////////////////////////////////////////////////////////////
   // Memory allocations
 

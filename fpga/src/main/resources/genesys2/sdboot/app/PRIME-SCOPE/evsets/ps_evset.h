@@ -8,6 +8,7 @@ int  ppp_prime_len_max;
 int  ct_extend_len_max;
 char enable_ppp_prime_clcheck;
 int  test_len;
+char auto_dect_config;
 
 #define MAX_POOL_SIZE_HUGE  (EVICT_LLC_SIZE/LLC_PERIOD)
 #define MAX_POOL_SIZE_SMALL (EVICT_LLC_SIZE/SMALLPAGE_PERIOD) 

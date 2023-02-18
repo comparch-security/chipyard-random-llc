@@ -107,7 +107,7 @@ uint64_t main (int argc, char *argv[])
   pid_t pid;
   pid = fork();
   if (pid == 0) { //child
-    chdir("/mnt/");
+    //chdir("/mnt/");
     execvp(argv[1],argv+1);
     exit(0);
   }

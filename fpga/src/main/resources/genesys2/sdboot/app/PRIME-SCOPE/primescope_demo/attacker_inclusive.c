@@ -29,6 +29,7 @@
 #include "../evsets/list/list_utils.h"
 #include "../evsets/ps_evset.h"
 
+
 ////////////////////////////////////////////////////////////////////////////////
 // Memory Allocations
 extern volatile uint64_t *shared_mem;
@@ -40,6 +41,9 @@ extern volatile uint64_t *synchronization_params;
 
 void test_eviction_set_creation();
 void test_primescope();
+int atdect_config(uint64_t req_eth,  uint64_t req_ath, uint64_t req_period,
+         uint64_t req_zth0, uint64_t req_discount0,
+         uint64_t req_zth1, uint64_t req_discount1);
 
 void configure_thresholds(
   uint64_t target_addr, int* thrL1, int* thrLLC, int* thrRAM, int* thrDET);
@@ -215,86 +219,120 @@ void test_eviction_set_creation() {
   KILL_HELPER();
   int access = 0;
 
-  for (int t=0; t<test_len; t++) {
-    ////////////////////////////////////////////////////////////////////////////
-    // Pick a new random target_addr from shared_mem
+  uint64_t req_eth         = 0;
+  uint64_t req_ath         = 0;
+  uint64_t req_period      = 1024;
+  uint64_t req_zth0        = 3;
+  uint64_t req_discount0   = 4;
+  uint64_t req_zth1        = 0;
+  uint64_t req_discount1   = 0;
 
-    int seed = time(NULL); srand(seed);
-    int target_index = (rand()%1000)*8;
-    if(target_index >= SHARED_MEM_SIZE) target_index = target_index - 8;
-    target_addr = (uint64_t)&shared_mem[target_index];
-    maccess((void*)target_addr); maccess((void*)target_addr);
-    //printf("target_addr %p/%p\n", (void*)target_addr, (void*)virt2phy((void*)target_addr));
-
-
-    ////////////////////////////////////////////////////////////////////////////
-    // Eviction Set Construction
-
-    #define EV_LLC LLC_WAYS
-
-  #if PREMAP_PAGES == 1
-    ps_evset_premap(evict_mem);
-  #endif
-
-    Elem  *evsetList;
-    Elem **evsetList_ptr = &evsetList;
-
-    *evsetList_ptr=NULL;
-
-    attempt_counter = 0;
-
-    clock_gettime(CLOCK_MONOTONIC, &tstart);
-  repeat_evset:
-    if(ppp_prime_len_min == 0) {
-      rv =  ps_evset( evsetList_ptr,
-                      (char*)target_addr,
-                      EV_LLC,
-                      evict_mem,
-                      HUGE_PAGES_AVAILABLE,
-                      thrDET,
-                      &access);
-    } else {
-      rv =  ppp_evset( evsetList_ptr,
-                       (char*)target_addr,
-                       EV_LLC,
-                       evict_mem,
-                       HUGE_PAGES_AVAILABLE,
-                       thrDET,
-                       ppp_prime_len_min,
-                       ppp_prime_len_max,
-                       &access);
+  for      (req_discount0   =     5;  req_discount0 <=   11;  req_discount0 = req_discount0+2    )  {
+    for    (req_period      =  1024;  req_period    <= 8192;  req_period    = req_period + 1024  )  {
+      for  (req_zth0        =     1;  req_zth0      <=   15;  req_zth0      = req_zth0+1         )  {
+        if(auto_dect_config) {
+          atdect_config(req_eth,  req_ath, req_period,
+                        req_zth0, req_discount0,
+                        req_zth1, req_discount1);
+        }
+        succ=0; fail=0; timeAll = 0;
+        for (int t=0; t<test_len; t++) {
+          ////////////////////////////////////////////////////////////////////////////
+          // Pick a new random target_addr from shared_mem
+  
+          int seed = time(NULL); srand(seed);
+          int target_index = (rand()%1000)*8;
+          if(target_index >= SHARED_MEM_SIZE) target_index = target_index - 8;
+          target_addr = (uint64_t)&shared_mem[target_index];
+          maccess((void*)target_addr); maccess((void*)target_addr);
+          //printf("target_addr %p/%p\n", (void*)target_addr, (void*)virt2phy((void*)target_addr));
+  
+  
+          ////////////////////////////////////////////////////////////////////////////
+          // Eviction Set Construction
+  
+          #define EV_LLC LLC_WAYS
+  
+          #if PREMAP_PAGES == 1
+            ps_evset_premap(evict_mem);
+          #endif
+  
+          Elem  *evsetList;
+          Elem **evsetList_ptr = &evsetList;
+  
+          *evsetList_ptr=NULL;
+  
+          attempt_counter = 0;
+  
+          clock_gettime(CLOCK_MONOTONIC, &tstart);
+          repeat_evset:
+            if(ppp_prime_len_min == 0) {
+              rv =  ps_evset(   evsetList_ptr,
+                                (char*)target_addr,
+                                EV_LLC,
+                                evict_mem,
+                                HUGE_PAGES_AVAILABLE,
+                                thrDET,
+                                &access);
+            } else {
+              rv =  ppp_evset(  evsetList_ptr,
+                                (char*)target_addr,
+                                EV_LLC,
+                                evict_mem,
+                                HUGE_PAGES_AVAILABLE,
+                                thrDET,
+                                ppp_prime_len_min,
+                                ppp_prime_len_max,
+                                &access);
+            }
+          if (rv != PS_SUCCESS) {
+            if (++attempt_counter < MAX_RETRY)
+              goto repeat_evset;
+          }
+          clock_gettime(CLOCK_MONOTONIC, &tend);
+  
+          timespan = time_diff_ms(tstart, tend);
+          timeAll += timespan;
+          timerecord[t%TIMERECORD] = timespan;
+          if(t%TIMERECORD == TIMERECORD - 1) {
+            qsort(timerecord, TIMERECORD, sizeof(float), comp);
+            timeLo    = timerecord[0]/1000;
+            timeMedi  = timerecord[TIMERECORD>>1]/1000;
+            timeHi    = timerecord[TIMERECORD-1]/1000;
+          }
+          if (attempt_counter ==0 || attempt_counter<MAX_RETRY) {
+            succ++;
+            if(enable_debug_log) {
+              printf(GREEN"\r\tPID %d Success. succ/try %d/%d acc %d Constucted with %d retries aver %5.3fs [%5.3f-%5.3f-%5.3f]s"NC,
+                getpid(), succ, t+1, access, attempt_counter, (double)timeAll/1000/(t+1), (double)timeLo, (double)timeMedi, (double)timeHi);
+              if(succ<=2 || succ==10 || t==100) printf("\n");
+            }
+          }
+          else {
+            fail++;
+            if(enable_debug_log) {
+              printf(RED"\r\tPID %d Fail.rv %d succ/try %d/%d  acc %d Could not construct aver %5.2fs [%5.3f-%5.3f-%5.3f]s"NC,
+                getpid(), rv, succ, t+1, access, (double)timeAll/1000/(t+1), (double)timeLo, (double)timeMedi, (double)timeHi);
+              if(fail<=2 || fail==10 || t==100) printf("\n");
+            }
+          }
+          if(enable_debug_log) {
+            //printf("\n\rVictim %p Eviction set addresses are: \n", (void*)target_addr); print_list(evsetList);
+          }
+          if(t + 1 == test_len) {
+            printf("\n");
+            printf("eth %ld ath %ld period %ld zth0 %ld discount0 %ld zth1 %ld discount1 %ld 0 means disable ",
+                      req_eth, req_ath, req_period, req_zth0, req_discount0, req_zth1, req_discount1);
+            //printf(GREEN"\r\tPID %d Success. succ/try %d/%d acc %d Constucted with %d retries aver %5.3fs [%5.3f-%5.3f-%5.3f]s"NC,
+            //         getpid(), succ, t+1, access, attempt_counter, (double)timeAll/1000/(t+1), (double)timeLo, (double)timeMedi, (double)timeHi);
+            //printf("\n");
+            printf("succ/try %6d/%6d aver %5.3fs\n", succ, t+1, (double)timeAll/1000/(t+1));
+            printf("\n");
+            fflush(stdout);
+          }
+        }
+      }
     }
-    if (rv != PS_SUCCESS) {
-      if (++attempt_counter < MAX_RETRY)
-        goto repeat_evset;
-    }
-    clock_gettime(CLOCK_MONOTONIC, &tend);
-
-    timespan = time_diff_ms(tstart, tend);
-    timeAll += timespan;
-    timerecord[t%TIMERECORD] = timespan;
-    if(t%TIMERECORD == TIMERECORD - 1) {
-      qsort(timerecord, TIMERECORD, sizeof(float), comp);
-      timeLo    = timerecord[0]/1000;
-      timeMedi  = timerecord[TIMERECORD>>1]/1000;
-      timeHi    = timerecord[TIMERECORD-1]/1000;
-    }
-    if (attempt_counter ==0 || attempt_counter<MAX_RETRY) {
-      succ++;
-      printf(GREEN"\r\tPID %d Success. succ/try %d/%d acc %d Constucted with %d retries aver %5.3fs [%5.3f-%5.3f-%5.3f]s"NC,
-        getpid(), succ, t+1, access, attempt_counter, (double)timeAll/1000/(t+1), (double)timeLo, (double)timeMedi, (double)timeHi);
-      if(succ<=2 || succ==10 || t==100) printf("\n");
-    }
-    else {
-      fail++;
-      printf(RED"\r\tPID %d Fail.rv %d succ/try %d/%d  acc %d Could not construct aver %5.2fs [%5.3f-%5.3f-%5.3f]s"NC,
-        getpid(), rv, succ, t+1, access, (double)timeAll/1000/(t+1), (double)timeLo, (double)timeMedi, (double)timeHi);
-      if(fail<=2 || fail==10 || t==100) printf("\n");
-    }
-    if(enable_debug_log) {
-      printf("\n\rVictim %p Eviction set addresses are: \n", (void*)target_addr); print_list(evsetList);
-    }
-    fflush(stdout);
   }
   printf("\n");
 }

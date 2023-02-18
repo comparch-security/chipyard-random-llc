@@ -12,7 +12,7 @@ OBJDUMP=$(RISCV)/bin/riscv64-unknown-linux-gnu-objdump
 ##CFLAGS= -lpthread -g -O2 -I$(LIST_DIR)/ -I$(UTILS_DIR)/ -I$(BROM_DIR)/include -I$(DRIVER_DIR)
 CFLAGS= -lpthread -g -O2 -static -fvisibility=hidden -s -I$(LIST_DIR)/ -I$(UTILS_DIR)/ -I$(BROM_DIR)/include -I$(DRIVER_DIR)
 
-TARGETS = evset_threshold evset_ge_postern evset_ct_postern evset_ppp_postern
+TARGETS = evset_threshold evset_w+w_threshold evset_ge_postern evset_ct_postern evset_ppp_postern  evset_w+w_postern
 
 c_source = $(UTILS_DIR)/cache_utils.c $(UTILS_DIR)/misc_utils.c
 

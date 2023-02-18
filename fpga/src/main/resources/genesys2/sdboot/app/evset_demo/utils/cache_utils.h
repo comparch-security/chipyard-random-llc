@@ -22,3 +22,7 @@ uint8_t       accl2hit              (void  *p)__attribute__((noinline));
 uint8_t       accl2miss             (void  *p)__attribute__((noinline));
 uint16_t      evset_test            (void  *target, uint8_t tests);
 
+
+int  time_continue_mread (void *adr1, void*adr2);
+int  time_continue_mwrite(void *adr1, void*adr2);
+

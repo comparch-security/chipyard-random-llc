@@ -47,7 +47,7 @@ int main(int argc, char **argv) {
       printf("open(/dev/mem) failed.\n");
       return 0;
    }
-   unsigned char *map_base = (unsigned char *)mmap(NULL, MAP_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED, dev_fd, L2_CTRL_PAGE_OFFSET);
+   unsigned char *map_base = (unsigned char *)mmap(NULL, 0x400, PROT_READ | PROT_WRITE, MAP_SHARED, dev_fd, L2_CTRL_PAGE_OFFSET);
 
    if(map_base == MAP_FAILED)  {
       printf("mmap_fail!\n");

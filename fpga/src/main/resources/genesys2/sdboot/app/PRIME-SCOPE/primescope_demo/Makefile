@@ -20,14 +20,14 @@ LDFLAGS += -static -fvisibility=hidden -s -O3
 
 SRCS_APP = 	main.c \
 						attacker_inclusive.c attacker_noninclusive.c \
-						attacker_helper.c victim.c prime.c 
+						attacker_helper.c victim.c prime.c atdect_config.c
 OBJS_APP = 	$(addprefix $(OBJDIR)/,$(patsubst %.c,%.o,$(SRCS_APP)))
 OBJS_EVS = 	$(addprefix $(EVSET_DIR)/$(OBJDIR)/,$(notdir $(patsubst %.c,%.o,$(shell find $(EVSET_DIR)/*.c $(EVSET_DIR)/list/*.c))))
 OBJS_UTL = 	$(addprefix $(UTILS_DIR)/$(OBJDIR)/,$(notdir $(patsubst %.c,%.o,$(shell find $(UTILS_DIR)/*.c))))
 
 SRCS_TEST_EVS = test-ps-evset.c \
 						attacker_inclusive.c attacker_noninclusive.c \
-						attacker_helper.c victim.c prime.c 
+						attacker_helper.c victim.c prime.c atdect_config.c
 OBJS_TEST_EVS = $(addprefix $(OBJDIR)/,$(patsubst %.c,%.o,$(SRCS_TEST_EVS)))
 
 ##########

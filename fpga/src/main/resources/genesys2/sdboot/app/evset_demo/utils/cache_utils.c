@@ -100,3 +100,34 @@ uint16_t evset_test(void *target, uint8_t tests) {
   }
   return passes;
 }
+
+int  time_continue_mread(void *adr1, void*adr2)
+{
+  //"fence                 \n"
+  int delay;
+  asm volatile (
+    "lb zero, 0(%1)        \n"
+    "rdcycle t1            \n"
+    "lb zero, 0(%2)        \n"
+    "rdcycle %0            \n"
+    "sub %0, %0, t1        \n"
+    : "=r"(delay)               // output
+    : "r"(adr1),"r"(adr2)       // input
+    : "t1");                    // clobber registers
+  return delay;
+}
+
+int  time_continue_mwrite(void *adr1, void*adr2)
+{
+  int delay;
+  asm volatile (
+    "sb zero, 0(%1)        \n"
+    "rdcycle t1            \n"
+    "sb zero, 0(%2)        \n"
+    "sub %0, %0, t1        \n"
+    "fence                 \n"
+    : "=r"(delay)               // output
+    : "r"(adr1),"r"(adr2)       // input
+    : "t1");                    // clobber registers
+  return delay;
+}
