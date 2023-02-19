@@ -45,6 +45,11 @@ int atdect_config(uint64_t req_eth,  uint64_t req_ath, uint64_t req_period,
          uint64_t req_zth0, uint64_t req_discount0,
          uint64_t req_zth1, uint64_t req_discount1);
 
+void check_atdect_config( uint8_t*  check_een,    uint8_t*  check_aen,    uint8_t*  check_zen,
+                          uint64_t* check_eth,    uint64_t* check_ath,    uint64_t* check_period,
+                          uint64_t* check_zth0,   uint64_t* check_discount0,
+                          uint64_t* check_zth1,   uint64_t* check_discount1);
+
 void configure_thresholds(
   uint64_t target_addr, int* thrL1, int* thrLLC, int* thrRAM, int* thrDET);
 
@@ -218,18 +223,20 @@ void test_eviction_set_creation() {
   // Only need helper for clean threshold calibration
   KILL_HELPER();
   int access = 0;
+                                       uint8_t  check_een         = 0;
+                                       uint8_t  check_aen         = 0;
+                                       uint8_t  check_zen         = 0;
+  uint64_t req_eth         = 0;        uint64_t check_eth         = 0;
+  uint64_t req_ath         = 0;        uint64_t check_ath         = 0;
+  uint64_t req_period      = 1024;     uint64_t check_period      = 0;
+  uint64_t req_zth0        = 3;        uint64_t check_zth0        = 0;
+  uint64_t req_discount0   = 4;        uint64_t check_discount0   = 0;
+  uint64_t req_zth1        = 0;        uint64_t check_zth1        = 0;
+  uint64_t req_discount1   = 0;        uint64_t check_discount1   = 0;
 
-  uint64_t req_eth         = 0;
-  uint64_t req_ath         = 0;
-  uint64_t req_period      = 1024;
-  uint64_t req_zth0        = 3;
-  uint64_t req_discount0   = 4;
-  uint64_t req_zth1        = 0;
-  uint64_t req_discount1   = 0;
-
-  for      (req_discount0   =     5;  req_discount0 <=   11;  req_discount0 = req_discount0+2    )  {
-    for    (req_period      =  1024;  req_period    <= 8192;  req_period    = req_period + 1024  )  {
-      for  (req_zth0        =     1;  req_zth0      <=   15;  req_zth0      = req_zth0+1         )  {
+  for      (req_discount0   =     5;  req_discount0 <=   5;   req_discount0  = req_discount0+2    )  {
+    for    (req_period      =  1024;  req_period    <= 8192;   req_period    = req_period + 1024  )  {
+      for  (req_zth0        =     1;  req_zth0      <=   15;   req_zth0      = req_zth0+1         )  {
         if(auto_dect_config) {
           atdect_config(req_eth,  req_ath, req_period,
                         req_zth0, req_discount0,
@@ -320,14 +327,25 @@ void test_eviction_set_creation() {
             //printf("\n\rVictim %p Eviction set addresses are: \n", (void*)target_addr); print_list(evsetList);
           }
           if(t + 1 == test_len) {
-            printf("\n");
-            printf("eth %ld ath %ld period %ld zth0 %ld discount0 %ld zth1 %ld discount1 %ld 0 means disable ",
-                      req_eth, req_ath, req_period, req_zth0, req_discount0, req_zth1, req_discount1);
-            //printf(GREEN"\r\tPID %d Success. succ/try %d/%d acc %d Constucted with %d retries aver %5.3fs [%5.3f-%5.3f-%5.3f]s"NC,
-            //         getpid(), succ, t+1, access, attempt_counter, (double)timeAll/1000/(t+1), (double)timeLo, (double)timeMedi, (double)timeHi);
-            //printf("\n");
+            printf("------------------------------------------------------------------------------------------------\n");
+            check_atdect_config(&check_een,    &check_aen, &check_zen,
+                                &check_eth,    &check_ath, &check_period,
+                                &check_zth0,   &check_discount0,
+                                &check_zth1,   &check_discount1);
+            printf("eth %7ld ath %10ld period %5ld zth0 %2ld discount0 %2ld zth1 %2ld discount1 %2ld 0 means disable ",
+                    check_eth, check_ath, check_period, check_zth0, check_discount0, check_zth1, check_discount1);
             printf("succ/try %6d/%6d aver %5.3fs\n", succ, t+1, (double)timeAll/1000/(t+1));
-            printf("\n");
+            if(auto_dect_config == 0) {
+              return;
+            } else {
+              if(!(check_eth   == req_eth    && check_ath   ==  req_ath   && check_period == req_period &&
+                   check_zth0  == req_zth0   && check_zth0  ==  req_zth0  &&
+                   check_zth1  == req_zth1   && check_zth1  ==  req_zth1) ||
+                   (check_een  && req_eth == 0) || (check_aen && req_ath == 0) || (check_zen && req_zth0 == 0 && req_zth1 == 0)) {
+                printf("eth %7ld ath %10ld period %5ld zth0 %2ld discount0 %2ld zth1 %2ld discount1 %2ld en[eaz] [%d%d%d] not matched",
+                        req_eth, req_ath, req_period, req_zth0, req_discount0, req_zth1, req_discount1, check_een, check_aen, check_zen);
+              }
+            }
             fflush(stdout);
           }
         }
