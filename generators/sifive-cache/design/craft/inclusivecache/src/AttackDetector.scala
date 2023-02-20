@@ -313,13 +313,13 @@ class AttackDetectorConfig0 extends Bundle {
 }
 
 class AttackDetectorConfig1 extends Bundle {
-  val reserve         = UInt(width = 26)
-  val discount1       = UInt(width =  4)   //discount factor right shift amount
-  val zthreshold1     = UInt(width =  5)   //z-vaule threshold
-  val discount0       = UInt(width =  4)   //discount factor right shift amount
-  val zthreshold0     = UInt(width =  4)   //z-vaule threshold
-  val period          = UInt(width = 20)   //sample period
-  val enzth           = Bool()             //lowest bit
+  val reserve         = UInt(width = 26     )
+  val discount1       = UInt(width =  4     )   //discount factor right shift amount
+  val zthreshold1     = UInt(width =  5 + 3 )   //z-vaule threshold
+  val discount0       = UInt(width =  4     )   //discount factor right shift amount
+  val zthreshold0     = UInt(width =  4 + 3 )   //z-vaule threshold
+  val period          = UInt(width = 20     )   //sample period
+  val enzth           = Bool()                  //lowest bit
 }
 
 
@@ -335,6 +335,7 @@ class AttackDetector(params: InclusiveCacheParameters) extends Module
   val emazFracWidth                  = evFracWidth                                    //exponential moving average
   val mulWidth                       = 3 * evIntWidth + evSqFracWidth
   val mulLatency                     = 2
+  val zthFracWidth                   = 3
   require(evFracWidth   > 2)
   require(emazFracWidth > 1)
   require(evFracWidth >= emazFracWidth)
@@ -358,8 +359,8 @@ class AttackDetector(params: InclusiveCacheParameters) extends Module
       val erranl      = Decoupled(new ErrorAnalysis(params.setBits, evIntWidth, evFracWidth, evSqIntWidth, evSqFracWidth, emaz0IntWidth, emaz1IntWidth, emazFracWidth))
     }
   }
-  require(io.config1.zthreshold0.getWidth == emaz0IntWidth)
-  require(io.config1.zthreshold1.getWidth == emaz1IntWidth)
+  require(io.config1.zthreshold0.getWidth - zthFracWidth == emaz0IntWidth)
+  require(io.config1.zthreshold1.getWidth - zthFracWidth == emaz1IntWidth)
 
   val laseSet = (1 << params.setBits) - 1
   def UIntMax(u:        UInt):  UInt = {((1.toLong << u.getWidth) -1).U  }
@@ -432,8 +433,8 @@ class AttackDetector(params: InclusiveCacheParameters) extends Module
   val atdetec                    = Reg(Bool())
 
   io.remap.bits.atdetec := atdetec
-  when((io.config1.zthreshold0 =/= 0.U && max_emaz(0) > Cat(io.config1.zthreshold0, 0.U(emazFracWidth.W))) ||
-       (io.config1.zthreshold1 =/= 0.U && max_emaz(1) > Cat(io.config1.zthreshold1, 0.U(emazFracWidth.W)))) {
+  when((io.config1.zthreshold0 =/= 0.U && max_emaz(0) > Cat(io.config1.zthreshold0, 0.U((emazFracWidth - zthFracWidth).W))) ||
+       (io.config1.zthreshold1 =/= 0.U && max_emaz(1) > Cat(io.config1.zthreshold1, 0.U((emazFracWidth - zthFracWidth).W)))) {
     atdetec := true.B
   }
 
@@ -772,7 +773,7 @@ class AttackDetectorTrace(params: InclusiveCacheParameters) extends Module {
   attackdetector.io.config1.discount1          := 3.U
   attackdetector.io.config1.zthreshold1        := 0.U
   attackdetector.io.config1.discount0          := 5.U
-  attackdetector.io.config1.zthreshold0        := 5.U
+  attackdetector.io.config1.zthreshold0        := (5 << 3).U
   attackdetector.io.config1.period             := 4096.U
   attackdetector.io.config1.enzth              := true.B
   io.tracein.ready                             := tracein.ev === 0.U

@@ -229,14 +229,14 @@ void test_eviction_set_creation() {
   uint64_t req_eth         = 0;        uint64_t check_eth         = 0;
   uint64_t req_ath         = 0;        uint64_t check_ath         = 0;
   uint64_t req_period      = 1024;     uint64_t check_period      = 0;
-  uint64_t req_zth0        = 3;        uint64_t check_zth0        = 0;
+  uint64_t req_zth0        = 4;        uint64_t check_zth0        = 0;
   uint64_t req_discount0   = 4;        uint64_t check_discount0   = 0;
   uint64_t req_zth1        = 0;        uint64_t check_zth1        = 0;
   uint64_t req_discount1   = 0;        uint64_t check_discount1   = 0;
 
-  for      (req_discount0   =     5;  req_discount0 <=   5;   req_discount0  = req_discount0+2    )  {
-    for    (req_period      =  1024;  req_period    <= 8192;   req_period    = req_period + 1024  )  {
-      for  (req_zth0        =     1;  req_zth0      <=   15;   req_zth0      = req_zth0+1         )  {
+  for      (req_discount0   =       5;  req_discount0 <=     5;   req_discount0  = req_discount0+2    )  {
+    for    (req_period      =    1024;  req_period    <=  8192;   req_period     = req_period + 1024  )  {
+      for  (req_zth0        =     4*8;  req_zth0      <=   6*8;   req_zth0       = req_zth0+4         )  {
         if(auto_dect_config) {
           atdect_config(req_eth,  req_ath, req_period,
                         req_zth0, req_discount0,
@@ -327,13 +327,13 @@ void test_eviction_set_creation() {
             //printf("\n\rVictim %p Eviction set addresses are: \n", (void*)target_addr); print_list(evsetList);
           }
           if(t + 1 == test_len) {
-            printf("------------------------------------------------------------------------------------------------\n");
+            printf("\n------------------------------------------------------------------------------------------------\n");
             check_atdect_config(&check_een,    &check_aen, &check_zen,
                                 &check_eth,    &check_ath, &check_period,
                                 &check_zth0,   &check_discount0,
                                 &check_zth1,   &check_discount1);
-            printf("eth %7ld ath %10ld period %5ld zth0 %2ld discount0 %2ld zth1 %2ld discount1 %2ld 0 means disable ",
-                    check_eth, check_ath, check_period, check_zth0, check_discount0, check_zth1, check_discount1);
+            printf("en[eaz] [%d%d%d] eth %7ld ath %10ld period %5ld zth0 %4ld discount0 %2ld zth1 %4ld discount1 %2ld 0 means disable ",
+                    check_een, check_aen, check_zen, check_eth, check_ath, check_period, check_zth0, check_discount0, check_zth1, check_discount1);
             printf("succ/try %6d/%6d aver %5.3fs\n", succ, t+1, (double)timeAll/1000/(t+1));
             if(auto_dect_config == 0) {
               return;
@@ -342,8 +342,8 @@ void test_eviction_set_creation() {
                    check_zth0  == req_zth0   && check_zth0  ==  req_zth0  &&
                    check_zth1  == req_zth1   && check_zth1  ==  req_zth1) ||
                    (check_een  && req_eth == 0) || (check_aen && req_ath == 0) || (check_zen && req_zth0 == 0 && req_zth1 == 0)) {
-                printf("eth %7ld ath %10ld period %5ld zth0 %2ld discount0 %2ld zth1 %2ld discount1 %2ld en[eaz] [%d%d%d] not matched",
-                        req_eth, req_ath, req_period, req_zth0, req_discount0, req_zth1, req_discount1, check_een, check_aen, check_zen);
+                printf("en[eaz] [%d%d%d] eth %7ld ath %10ld period %5ld zth0 %4ld discount0 %2ld zth1 %4ld discount1 %2ld not matched",
+                        check_een, check_aen, check_zen, req_eth, req_ath, req_period, req_zth0, req_discount0, req_zth1, req_discount1);
               }
             }
             fflush(stdout);

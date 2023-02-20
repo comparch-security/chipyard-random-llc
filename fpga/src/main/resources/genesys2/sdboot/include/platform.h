@@ -11,6 +11,7 @@
 #include "devices/uart.h"
 #include "devices/pfc.h"
 #include "devices/l2ctrl.h"
+#include "devices/atdect.h"
 
  // Some things missing from the official encoding.h
 #if __riscv_xlen == 32

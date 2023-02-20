@@ -1,7 +1,10 @@
 THIS_DIR := $(dir $(abspath $(lastword $(MAKEFILE_LIST))))
 EVSET_DIR := ../evsets
 UTILS_DIR := ../utils
+BROM_DIR := $(THIS_DIR)/../..
 CC = riscv64-unknown-linux-gnu-gcc
+
+
 
 ##################
 # Build directory
@@ -37,7 +40,7 @@ all: clean utils evsets app test-ps-evset
 
 # Compiling targets
 app: $(OBJS_APP) $(OBJS_EVS) $(OBJS_UTL)
-	$(CC) -o $@ $^ $(LDFLAGS) -lrt -lm
+	$(CC) -o $@ $^ $(LDFLAGS) -lrt -lm -I$(BROM_DIR)/include
 
 test-ps-evset: $(OBJS_TEST_EVS) $(OBJS_EVS) $(OBJS_UTL)
 	$(CC) -o $@ $^ $(LDFLAGS) -lrt -lm
