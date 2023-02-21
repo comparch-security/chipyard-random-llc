@@ -223,6 +223,7 @@ void test_eviction_set_creation() {
   // Only need helper for clean threshold calibration
   KILL_HELPER();
   int access = 0;
+  int config = 0;
                                        uint8_t  check_een         = 0;
                                        uint8_t  check_aen         = 0;
                                        uint8_t  check_zen         = 0;
@@ -234,9 +235,20 @@ void test_eviction_set_creation() {
   uint64_t req_zth1        = 0;        uint64_t check_zth1        = 0;
   uint64_t req_discount1   = 0;        uint64_t check_discount1   = 0;
 
+  req_eth = 163840;
   for      (req_discount0   =       5;  req_discount0 <=     5;   req_discount0  = req_discount0+2    )  {
     for    (req_period      =    1024;  req_period    <=  8192;   req_period     = req_period + 1024  )  {
       for  (req_zth0        =     4*8;  req_zth0      <=   6*8;   req_zth0       = req_zth0+4         )  {
+
+        if(config == 0) { req_eth =       0;     req_period =1024;  req_zth0=  0;  } //static
+        if(config == 1) { req_eth =  163840;     req_period =1024;  req_zth0=  0;  } //ev10
+        if(config == 2) { req_eth =       0;     req_period =1024;  req_zth0= 40;  } //dt1
+        if(config == 3) { req_eth =       0;     req_period =4096;  req_zth0= 40;  } //dt4
+        if(config == 4) { req_eth =  163840;     req_period =1024;  req_zth0= 40;  } //ev10dt1
+        if(config == 5) { req_eth =  163840;     req_period =4096;  req_zth0= 40;  } //ev10dt4
+        req_ath = 0; req_discount0 = 5; req_zth1 = 0;   req_discount1 = 0;
+        config++;
+        if(config > 6) return;
         if(auto_dect_config) {
           atdect_config(req_eth,  req_ath, req_period,
                         req_zth0, req_discount0,
@@ -392,6 +404,7 @@ void configure_thresholds(
   *thrL1  = timing[2][(int)0.10*THRESHOLD_TEST_COUNT];
   *thrDET = (2*(*thrRAM) + (*thrLLC))/3;
   if(*thrDET < timing[1][0])  *thrDET = timing[1][0] - 1; //*thrDET = (*thrDET + 2*timing[1][0]) / 3;
+  *thrDET = 45;
 
   printf("\nThresholds Configured\n\n");
   printf("\tL1/L2    : %d  [%3d-%3d-%3d-%3d-%3d-%3d-%3d-%3d-%3d-%3d-%3d]\n", *thrL1,  timing[2][0],
