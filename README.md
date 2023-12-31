@@ -79,7 +79,7 @@ and cache skews have been introduced to further increase the difficulty in findi
 * [[Song2021](https://doi.org/10.1109/SP40001.2021.00050)] successfully pointed out that the filter effect of inner cache levels were overlooked and the security claims of randomized skewed caches were over-optimistic.
 * [[Saileshwar2021](https://www.usenix.org/conference/usenixsecurity21/presentation/saileshwar)] proposed MIRAGE, which claimed to fully eliminate attacker-controlled associativity evictions by over-providing metadata space and introducing multi-stepped Cuckoo relocation into randomized skewed caches.
 * [[Unterluggauer2022](https://doi.org/10.1109/seed55351.2022.00009)] proposed Chameleon cache, which introduced a victim cache in a skewed cache to provide a approximation of fully associative cache (similar to MIRAGE).
-* This project provide the first hardware implementation of a dynamically randomized set-associative LLC capable of thwart all existing attacks.
+* This work provides the first hardware implementation of a dynamically randomized set-associative LLC capable of thwart all existing attacks.
 
 ## Our Methodology
 
@@ -160,4 +160,12 @@ and the fastest cryptographic cipher still requires 4 to 6 cycles.
 We propose a single-cycle hasher which we claim is secured enough for the purpose of randomizing the cache indices.
 For details, please refer to our latest TC paper.
 
+## Internal Structure
+
+The concept of randomizing a set-associated LLC cache is depicted as follows:
+
+![llc-random](https://wsong83.github.io/asset/chipyard-random-llc/llc-structure.png)
+
+
+![llc-random](https://wsong83.github.io/asset/chipyard-random-llc/l2-detail.png)
 
