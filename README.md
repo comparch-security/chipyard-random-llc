@@ -156,3 +156,28 @@ A remapper controller triggers a remap either an attack is detected or a preset 
 
 ![llc-random](https://wsong83.github.io/asset/chipyard-random-llc/l2-detail.png)
 
+## Performance Results
+
+A dualcore Rocket-Chip (32KB PLRU L1-I and L1-D, 1MB 1024-set 16-way PLRU L2) has been ported to a Digilent Genesys-2 FPGA board.
+The processing cores run at 75MHz while the off-chip memory (1GB) runs at 900MHz.
+
+### Strength of Protection
+
+We have reproduced all existing eviction set searching algorithms on FPGA,
+including GE, PPP, CT, CT-fast and W+W.
+Our experiment shows that all these algorithms fail to work (success rate < 0.01%).
+
+### Area Overhead
+
+We have done both FPGA and ASIC evaluation.
+For the FPGA implementation, the logic overhead is 15.8% while the BRAM overhead is only 1.9%.
+On ASIC, the overall overhead is only 2.84%.
+
+### Runtime Overhead
+
+We have run the SPEC CPU 2006 benchmark on FPGA.
+The LLC miss rate rises by 1.11%, while CPI overhead is around 0.9%.
+
+### Power Overhead
+
+By measuring the FPGA power, the power overhead introduced by LLC randomization is around 2.5%.
