@@ -3,14 +3,14 @@
 This a Rocket-Chip processor (based on [Chipyard](https://github.com/ucb-bar/chipyard))
 with its shared L2 cache dynamically randomized to thwart conflict-based cache side-channel attacks.
 The original proposal for dynamically randomizing classic (non-skewed) set-associative caches was published in our S&P'21 paper,
-while its actually implementation on the Rocket-Chip would soon appear on IEEE Transactions on Computers.
-The implementation is open-sourced under the same BSD 3-Clause License with Chipyard.
+while its implementation on the Rocket-Chip's LLC would soon appear on IEEE Transactions on Computers.
+The implementation is open-sourced by this repo under the same BSD 3-Clause License adopted by Chipyard.
 
 ### References
 
 * Wei Song, Zihan Xue, Jinchi Han, Zhenzhen Li, and Peng Liu. Randomizing set-associative caches against conﬂict-based cache side-channel attacks. IEEE Transactions on Computers, accepted, 2024. [[PDF](https://wsong83.github.io/publication/comparch/tc2024.pdf)]
 * Wei Song, Boya Li, Zihan Xue, Zhenzhen Li, Wenhao Wang, and Peng Liu. Randomized last level caches are still vulnerable to cache side channel attacks! But we can fix it. In Proceedings of the IEEE Symposium on Security and Privacy (S&P), Online, pp. 955–969, May 2021. [[DOI](https://doi.org/10.1109/SP40001.2021.00050), [PDF](https://wsong83.github.io/publication/comparch/sp2021.pdf)]
-* 薛子涵, 解达, 宋威. 基于RISC-V的新型硬件性能计数器. 计算机系统应用, November 2021, 30(11): 3–10.    
+* 薛子涵, 解达, 宋威. 基于RISC-V的新型硬件性能计数器. 计算机系统应用, 2021, 30(11): 3–10.    
   (Zihan Xue, Da Xie, and Wei Song. Hardware performance counter based on RISC-V. Computer Systems & Applications, vol. 30, no. 11, pp. 3–10, 2021)[[WEB](http://www.c-s-a.org.cn/html/2021/11/8346.htm)]
 
 ### Citation
@@ -71,15 +71,15 @@ and cache skews have been introduced to further increase the difficulty in findi
 ## Milestones of the Development of Cache Randomization Techniques
 
 * [[Wang2007](https://doi.org/10.1145/1250662.1250723)] proposed the first cache randomization scheme which could be used to protect L1 caches.
-* [[Song2018](https://wsong83.github.io/publication/comparch/riscv2018.pdf)] proposed a static cache randomization scheme to protect all cache levels, although this work was not peer-reviewed (Poster on the 8th RISC-V Workshop).
+* [[Song2018](https://wsong83.github.io/publication/comparch/riscv2018.pdf)] proposed a static cache randomization scheme to protect all cache levels, although this work was not peer-reviewed (a poster published in the 8th RISC-V Workshop).
 * [[Qureshi2018](https://doi.org/10.1109/MICRO.2018.00068)] firmly revived the concept of cache randomization and applied it to LLCs with dynamic remapping (named CEASER).
-* [[Bodduna2020](https://doi.org/10.1109/LCA.2020.2964212)] successfully pointed out that the block cipher utilized by CEASER was flawed, forcing nearly all following randomization schemes use cryptographic ciphers instead.
-* Around the same time, [[Werner2019](https://doi.org/10.5555/3361338.3361385)] and [[Qureshi2019](https://doi.org/10.1145/3307650.3322246)] proposed randomizing skewed caches rather than classic set-associative caches for better protection.
+* [[Bodduna2020](https://doi.org/10.1109/LCA.2020.2964212)] successfully pointed out that the linear block cipher utilized by CEASER was flawed, forcing almost all following randomization schemes to use cryptographic ciphers instead.
+* Around the same time, [[Werner2019](https://doi.org/10.5555/3361338.3361385)] and [[Qureshi2019](https://doi.org/10.1145/3307650.3322246)] proposed to randomize skewed caches rather than classic set-associative caches for better protection.
 * [[Bourgest2020](https://doi.org/10.1109/MICRO50266.2020.00092)] successfully pointed out that attackers could still leak information through prolonged attacks on randomized skewed caches.
-* [[Song2021](https://doi.org/10.1109/SP40001.2021.00050)] successfully pointed out that the filter effect of inner cache levels were overlooked and the security claims of randomized skewed caches were over-optimistic.
+* [[Song2021](https://doi.org/10.1109/SP40001.2021.00050)] successfully pointed out that the filter effect of inner cache levels is overlooked and the security claims of randomized skewed caches were over-optimistic.
 * [[Saileshwar2021](https://www.usenix.org/conference/usenixsecurity21/presentation/saileshwar)] proposed MIRAGE, which claimed to fully eliminate attacker-controlled associativity evictions by over-providing metadata space and introducing multi-stepped Cuckoo relocation into randomized skewed caches.
-* [[Unterluggauer2022](https://doi.org/10.1109/seed55351.2022.00009)] proposed Chameleon cache, which introduced a victim cache in a skewed cache to provide a approximation of fully associative cache (similar to MIRAGE).
-* This work provides the first hardware implementation of a dynamically randomized set-associative LLC capable of thwart all existing attacks.
+* [[Unterluggauer2022](https://doi.org/10.1109/seed55351.2022.00009)] proposed Chameleon cache, which introduced a victim cache in a skewed cache to provide an approximation to a fully associative cache (similar to MIRAGE).
+* This work provides the first hardware implementation of a dynamically randomized set-associative LLC capable of thwarting all existing eviction set searching algorithms.
 
 ## Our Methodology
 
@@ -87,78 +87,53 @@ This implementation is significantly different with the seemly most advanced ran
 
 ### Set-Associative Rather Than Skewed
 
-Instead of advocating the use of randomized skewed caches, we cautiously argue that randomized non-skewed (classic set-associative) caches can be sufficiently strengthened and possess a better chance to be adopted in the near future than their skewed counterparts.
+Instead of advocating the use of randomized skewed caches, we cautiously argue that randomized non-skewed (classic set-associative) caches can be sufficiently strengthened and possess a better chance to be adopted in the near future than their skewed counterparts:
 
-**The performance benefit of using skewed caches is not proven by commercial processors and introducing it purely for security purpose might be ill-fated.**
-With our best effort, we found that skewed caches have not been adopted in the LLCs of any commercially available modern processors.
-The performance benefit of a skewed cache is the increased cache associativity by reducing conflict misses.
-As the number of ways grows in modern processors, the benefit of extra cache associativity diminishes.
-The required partitioning of cache sets undesirably reduces the efficiency of the LRU/RRIP replacement policy adopted by the LLCs in modern processors.
-Excessive skewing actually hurts performance.
-
-**The area and runtime performance overhead of MIRAGE is heavy.**
-According to its own estimation, the storage overhead of the over-provided metadata space has already approached 22%.
-The runtime performance loss was estimated to 2.0% in term of cycles per instruction (CPI) based on simulator results,
-which we believe is also under-estimated.
-
-**The non-skewed set-associative caches can be made sufficiently safe against existing conflict-based cache side-channel attacks.**
-The full elimination of associativity evictions might be an overkill with unnecessary performance overhead.
-What actually required is to sufficiently raise the bar for existing attacks to a level that is unviable in practice.
-As shown by our experiments using actual attacks running on hardware implemented processors,
-dynamically remapping a randomized set-associative LLC using a combination of detectors
-successfully thwarts all existing search algorithms with a marginal performance overhead.
+* The performance benefit of using skewed caches is not proven by commercial processors and introducing it purely for security purpose might be ill-fated.
+* The area and runtime performance overhead of MIRAGE is heavy.
+* The non-skewed set-associative caches can be made sufficiently safe against existing conflict-based cache side-channel attacks.
 
 ### Trigger Remaps by Counting Evictions rather Than Accesses
 
 Existing cache randomization schemes trigger remaps after a certain amount of LLC accesses.
-Due to the filter effect of inner caches, most memory accesses hits in inner caches and become invisible to the LLC.
+During attacks, most memory accesses hit in inner caches and become invisible to the LLC.
 This unfortunately distorts the observation of the LLC.
-Instead of counting cache accesses, cache evictions are both unavoidable by side-channel attacks and always visible by the LLC.
+Compared with cache accesses, cache evictions are both unavoidable and visible to the LLC.
 Triggering remaps by counting LLC evictions is at least as effective as counting LLC accesses.
-Even better, counting LLC evictions is actually much more efficient
-because the LLC miss rate of normal applications is much lower than attacks
-and less remaps would be triggered.
+Even better, since the LLC miss rate of normal applications is much lower than attacks,
+less remaps would be triggered during normal operations.
 
 ### Significantly Reducing Remap Overhead by Multi-Step Relocation
 
-The most performance overhead of dynamic cache randomization comes form the data loss during a remap.
-Our experiment estimates that 40% to 50% cache blocks in an LLC are evicted during the remap process,
+The largest performance overhead of dynamic cache randomization comes form the data loss during a remap.
+Our experiment estimates that 40~50% cache blocks in an LLC are evicted during the remap process,
 which is why frequent remaps can hurt performance significantly.
+We use a multi-step relocation scheme to reduce this cost.
+When a cache block is remapped to a fully occupied cache set, instead of evicting a cache block, this block is further remapped.
+The data loss drops to just 10% as a result.
 
-Our solution is a multi-step relocation scheme in the remap process.
-When a cache block is remapped to a full cache set, instead of evicting one cache block to make a room,
-the remap tries to further remap the otherwise evicted block.
-In a set-associative cache, this multi-step relocation scheme reduces the data loss from 40~50% to just 10%.
+### Extra Remaps by Attack Detection
 
-### Trigger Extra Remaps When an Active Is Detected
-
-Although remap at a high frequency thwarts most side-channel attacks,
-it incurs observable performance loss due to the evicted cache blocks.
-Instead, moderately reducing the remap frequency while triggering extra remaps
-when attacks using fast search algorithms are caught in action can reduce the performance loss.
-Our research has shown that both PPP and GE algorithms can be reliably detected,
+We find that both PPP and GE algorithms can be reliably detected,
 because they need to prune a large set of random addresses into a minimal eviction set and
 exceptional number of evictions are incurred on the targeted cache set during the prune process.
 An active attack can be detected accordingly by constantly monitoring the distribution of evictions among cache sets.
-
 As an example, the following figure shows two attacks utilizing the GE algorithm to search eviction sets.
 After applying a Z-standardization, the unbalanced distribution of cache evictions among cache set
 is easily noticeable.
 
 ![Detection Example](https://wsong83.github.io/asset/chipyard-random-llc/ge-eviction-zscore.png)
 
-By combining periodically and detector triggered remaps,
+By triggering extra remaps when an attack is detected in action,
 all existing attacks (searching eviction sets at runtime) are defeated.
 
 ### Single-Cycle Hasher
 
 Is it really necessary to use a multi-cycle cryptographic cipher for randomizing cache indices?
-No, we think, even when everyone else is doing so.
-
-According to our estimation, every extra cycle consumed by the cryptographic cipher cost 0.4% CPI performance,
-and the fastest cryptographic cipher still requires 4 to 6 cycles.
-We propose a single-cycle hasher which we claim is secured enough for the purpose of randomizing the cache indices.
-For details, please refer to our latest TC paper.
+No, we think, even though everyone else is doing so.
+According to our estimation, every extra cycle consumed by the cryptographic cipher prolongs CPI by 0.4%,
+and the fastest cryptographic cipher requires 4 to 6 cycles.
+We propose a single-cycle hasher which should be secured enough for the purpose of randomizing the cache indices.
 
 ## Internal Structure
 
