@@ -1,177 +1,163 @@
-![CHIPYARD](https://github.com/ucb-bar/chipyard/raw/master/docs/_static/images/chipyard-logo-full.png)
+# A Rocket-Chip with a Dynamically Randomized LLC
 
-# Chipyard Framework [![CircleCI](https://circleci.com/gh/ucb-bar/chipyard/tree/master.svg?style=svg)](https://circleci.com/gh/ucb-bar/chipyard/tree/master)
+This a Rocket-Chip processor (based on [Chipyard](https://github.com/ucb-bar/chipyard))
+with its shared L2 cache dynamically randomized to thwart conflict-based cache side-channel attacks.
+The original proposal for dynamically randomizing classic (non-skewed) set-associative caches was published in our S&P'21 paper,
+while its actually implementation on the Rocket-Chip would soon appear on IEEE Transactions on Computers.
+The implementation is open-sourced under the same BSD 3-Clause License with Chipyard.
 
-## Using Chipyard
+### References
 
-To get started using Chipyard, see the documentation on the Chipyard documentation site: https://chipyard.readthedocs.io/
+* Wei Song, Zihan Xue, Jinchi Han, Zhenzhen Li, and Peng Liu. Randomizing set-associative caches against conﬂict-based cache side-channel attacks. IEEE Transactions on Computers, accepted, 2024. [[PDF](https://wsong83.github.io/publication/comparch/tc2024.pdf)]
+* Wei Song, Boya Li, Zihan Xue, Zhenzhen Li, Wenhao Wang, and Peng Liu. Randomized last level caches are still vulnerable to cache side channel attacks! But we can fix it. In Proceedings of the IEEE Symposium on Security and Privacy (S&P), Online, pp. 955–969, May 2021. [[DOI](https://doi.org/10.1109/SP40001.2021.00050), [PDF](https://wsong83.github.io/publication/comparch/sp2021.pdf)]
+* 薛子涵, 解达, 宋威. 基于RISC-V的新型硬件性能计数器. 计算机系统应用, November 2021, 30(11): 3–10.    
+  (Zihan Xue, Da Xie, and Wei Song. Hardware performance counter based on RISC-V. Computer Systems & Applications, vol. 30, no. 11, pp. 3–10, 2021)[[WEB](http://www.c-s-a.org.cn/html/2021/11/8346.htm)]
 
-## What is Chipyard
+### Citation
 
-Chipyard is an open source framework for agile development of Chisel-based systems-on-chip.
-It will allow you to leverage the Chisel HDL, Rocket Chip SoC generator, and other [Berkeley][berkeley] projects to produce a [RISC-V][riscv] SoC with everything from MMIO-mapped peripherals to custom accelerators.
-Chipyard contains processor cores ([Rocket][rocket-chip], [BOOM][boom], [CVA6 (Ariane)][cva6]), accelerators ([Hwacha][hwacha], [Gemmini][gemmini], [NVDLA][nvdla]), memory systems, and additional peripherals and tooling to help create a full featured SoC.
-Chipyard supports multiple concurrent flows of agile hardware development, including software RTL simulation, FPGA-accelerated simulation ([FireSim][firesim]), automated VLSI flows ([Hammer][hammer]), and software workload generation for bare-metal and Linux-based systems ([FireMarshal][firemarshal]).
-Chipyard is actively developed in the [Berkeley Architecture Research Group][ucb-bar] in the [Electrical Engineering and Computer Sciences Department][eecs] at the [University of California, Berkeley][berkeley].
+If used for research, please cite the following publication:
 
-## Resources
-
-* Chipyard Documentation: https://chipyard.readthedocs.io/
-* Chipyard Basics slides: https://fires.im/micro19-slides-pdf/02_chipyard_basics.pdf
-* Chipyard Tutorial Exercise slides: https://fires.im/micro19-slides-pdf/03_building_custom_socs.pdf
-
-## Need help?
-
-* Join the Chipyard Mailing List: https://groups.google.com/forum/#!forum/chipyard
-* If you find a bug, post an issue on this repo
-
-## Contributing
-
-* See [CONTRIBUTING.md](/CONTRIBUTING.md)
-
-## Attribution and Chipyard-related Publications
-
-If used for research, please cite Chipyard by the following publication:
-
-```
-@article{chipyard,
-  author={Amid, Alon and Biancolin, David and Gonzalez, Abraham and Grubb, Daniel and Karandikar, Sagar and Liew, Harrison and Magyar,   Albert and Mao, Howard and Ou, Albert and Pemberton, Nathan and Rigge, Paul and Schmidt, Colin and Wright, John and Zhao, Jerry and Shao, Yakun Sophia and Asanovi\'{c}, Krste and Nikoli\'{c}, Borivoje},
-  journal={IEEE Micro},
-  title={Chipyard: Integrated Design, Simulation, and Implementation Framework for Custom SoCs},
-  year={2020},
-  volume={40},
-  number={4},
-  pages={10-21},
-  doi={10.1109/MM.2020.2996616},
-  ISSN={1937-4143},
+~~~
+@article{Song2024,
+  author  = {Wei Song and Zihan Xue and Jinchi Han and Zhenzhen Li and Peng Liu},
+  journal = {IEEE Transactions on Computers},
+  title   = {Randomizing set-associative caches against conﬂict-based cache side-channel attacks},
+  year    = {2024},
+  pages   = {14},
+  note    = {accepted}
 }
-```
+~~~
 
-* **Chipyard**
-    * A. Amid, et al. *IEEE Micro'20* [PDF](https://ieeexplore.ieee.org/document/9099108).
-    * A. Amid, et al. *DAC'20* [PDF](https://ieeexplore.ieee.org/document/9218756).
+## Conflict-Based Cache Side-Channel Attacks
 
-These additional publications cover many of the internal components used in Chipyard. However, for the most up-to-date details, users should refer to the Chipyard docs.
+Conflict-based cache side-channel attacks against the last-level cache (LLC)
+is a widely exploited method for information leaking.
+Since the LLC is shared between all processing cores,
+it allows a malicious software to
+trigger controlled conflicts, such as evicting a specific cache set with attackers' data,
+to infer security-critical information of a victim program.
+They have been utilized to recover cryptographic keys,
+break the sandbox defense,
+inject faults directly into the DRAM,
+and extract information from the supposedly secure SGX enclaves.
 
-* **Generators**
-    * **Rocket Chip**: K. Asanovic, et al., *UCB EECS TR*. [PDF](http://www2.eecs.berkeley.edu/Pubs/TechRpts/2016/EECS-2016-17.pdf).
-    * **BOOM**: C. Celio, et al., *Hot Chips 30*. [PDF](https://www.hotchips.org/hc30/1conf/1.03_Berkeley_BROOM_HC30.Berkeley.Celio.v02.pdf).
-      * **SonicBOOM (BOOMv3)**: J. Zhao, et al., *CARRV'20*. [PDF](https://carrv.github.io/2020/papers/CARRV2020_paper_15_Zhao.pdf).
-    * **Hwacha**: Y. Lee, et al., *ESSCIRC'14*. [PDF](http://hwacha.org/papers/riscv-esscirc2014.pdf).
-    * **Gemmini**: H. Genc, et al., *arXiv*. [PDF](https://arxiv.org/pdf/1911.09925).
-* **Sims**
-    * **FireSim**: S. Karandikar, et al., *ISCA'18*. [PDF](https://sagark.org/assets/pubs/firesim-isca2018.pdf).
-        * **FireSim Micro Top Picks**: S. Karandikar, et al., *IEEE Micro, Top Picks 2018*. [PDF](https://sagark.org/assets/pubs/firesim-micro-top-picks2018.pdf).
-        * **FASED**: D. Biancolin, et al., *FPGA'19*. [PDF](https://people.eecs.berkeley.edu/~biancolin/papers/fased-fpga19.pdf).
-        * **Golden Gate**: A. Magyar, et al., *ICCAD'19*. [PDF](https://davidbiancolin.github.io/papers/goldengate-iccad19.pdf).
-        * **FirePerf**: S. Karandikar, et al., *ASPLOS'20*. [PDF](https://sagark.org/assets/pubs/fireperf-asplos2020.pdf).
-* **Tools**
-    * **Chisel**: J. Bachrach, et al., *DAC'12*. [PDF](https://people.eecs.berkeley.edu/~krste/papers/chisel-dac2012.pdf).
-    * **FIRRTL**: A. Izraelevitz, et al., *ICCAD'17*. [PDF](https://ieeexplore.ieee.org/document/8203780).
-    * **Chisel DSP**: A. Wang, et al., *DAC'18*. [PDF](https://ieeexplore.ieee.org/document/8465790).
-* **VLSI**
-    * **Hammer**: E. Wang, et al., *ISQED'20*. [PDF](https://www.isqed.org/English/Archives/2020/Technical_Sessions/113.html).
+## States-of-the-Art on Defense Methods
+
+Cache partitioning and randomization are two of the main defense methodologies.
+
+### Cache Partitioning
+
+Cache partitioning used to be the only effective defense against conflict-based cache side-channel attacks abusing the LLC.
+It separates security-critical data from normal data in the LLC;
+therefore, attackers cannot evict security-critical data by triggering conflicts using normal data.
+However, cache partitioning is ineffective when security-critical data cannot be easily separated from normal data
+or normal data become the target.
+It also reduces the autonomy of the LLC which might in turn hurt performance for some applications.
+Finally, cache partitioning relies on specific operating system (OS) code to identify security-critical data,
+which means the OS must be trusted.
+
+### Cache Randomization
+
+Cache randomization has recently been accepted as a promising defense.
+In a randomized cache,
+the mapping from memory addresses to cache set indices is randomized,
+forcing attackers to slowly find eviction sets at runtime rather than directly calculating cache set indices.
+Even when eviction sets are found, attackers cannot easily tell which cache sets are evicted by them.
+However, cache randomization alone does not defeat conflict-based cache side-channel attacks
+but only increases difficulty and latency.
+For this reason, dynamic remapping is used to limit the time window available to attackers,
+and cache skews have been introduced to further increase the difficulty in finding eviction sets.
+
+## Milestones of the Development of Cache Randomization Techniques
+
+* [[Wang2007](https://doi.org/10.1145/1250662.1250723)] proposed the first cache randomization scheme which could be used to protect L1 caches.
+* [[Song2018](https://wsong83.github.io/publication/comparch/riscv2018.pdf)] proposed a static cache randomization scheme to protect all cache levels, although this work was not peer-reviewed (Poster on the 8th RISC-V Workshop).
+* [[Qureshi2018](https://doi.org/10.1109/MICRO.2018.00068)] firmly revived the concept of cache randomization and applied it to LLCs with dynamic remapping (named CEASER).
+* [[Bodduna2020](https://doi.org/10.1109/LCA.2020.2964212)] successfully pointed out that the block cipher utilized by CEASER was flawed, forcing nearly all following randomization schemes use cryptographic ciphers instead.
+* Around the same time, [[Werner2019](https://doi.org/10.5555/3361338.3361385)] and [[Qureshi2019](https://doi.org/10.1145/3307650.3322246)] proposed randomizing skewed caches rather than classic set-associative caches for better protection.
+* [[Bourgest2020](https://doi.org/10.1109/MICRO50266.2020.00092)] successfully pointed out that attackers could still leak information through prolonged attacks on randomized skewed caches.
+* [[Song2021](https://doi.org/10.1109/SP40001.2021.00050)] successfully pointed out that the filter effect of inner cache levels were overlooked and the security claims of randomized skewed caches were over-optimistic.
+* [[Saileshwar2021](https://www.usenix.org/conference/usenixsecurity21/presentation/saileshwar)] proposed MIRAGE, which claimed to fully eliminate attacker-controlled associativity evictions by over-providing metadata space and introducing multi-stepped Cuckoo relocation into randomized skewed caches.
+* [[Unterluggauer2022](https://doi.org/10.1109/seed55351.2022.00009)] proposed Chameleon cache, which introduced a victim cache in a skewed cache to provide a approximation of fully associative cache (similar to MIRAGE).
+* This project provide the first hardware implementation of a dynamically randomized set-associative LLC capable of thwart all existing attacks.
+
+## Our Methodology
+
+This implementation is significantly different with the seemly most advanced randomization schemes (MIRAGE and Chameleon) in several aspects:
+
+### Set-Associative Rather Than Skewed
+
+Instead of advocating the use of randomized skewed caches, we cautiously argue that randomized non-skewed (classic set-associative) caches can be sufficiently strengthened and possess a better chance to be adopted in the near future than their skewed counterparts.
+
+**The performance benefit of using skewed caches is not proven by commercial processors and introducing it purely for security purpose might be ill-fated.**
+With our best effort, we found that skewed caches have not been adopted in the LLCs of any commercially available modern processors.
+The performance benefit of a skewed cache is the increased cache associativity by reducing conflict misses.
+As the number of ways grows in modern processors, the benefit of extra cache associativity diminishes.
+The required partitioning of cache sets undesirably reduces the efficiency of the LRU/RRIP replacement policy adopted by the LLCs in modern processors.
+Excessive skewing actually hurts performance.
+
+**The area and runtime performance overhead of MIRAGE is heavy.**
+According to its own estimation, the storage overhead of the over-provided metadata space has already approached 22%.
+The runtime performance loss was estimated to 2.0% in term of cycles per instruction (CPI) based on simulator results,
+which we believe is also under-estimated.
+
+**The non-skewed set-associative caches can be made sufficiently safe against existing conflict-based cache side-channel attacks.**
+The full elimination of associativity evictions might be an overkill with unnecessary performance overhead.
+What actually required is to sufficiently raise the bar for existing attacks to a level that is unviable in practice.
+As shown by our experiments using actual attacks running on hardware implemented processors,
+dynamically remapping a randomized set-associative LLC using a combination of detectors
+successfully thwarts all existing search algorithms with a marginal performance overhead.
+
+### Trigger Remaps by Counting Evictions rather Than Accesses
+
+Existing cache randomization schemes trigger remaps after a certain amount of LLC accesses.
+Due to the filter effect of inner caches, most memory accesses hits in inner caches and become invisible to the LLC.
+This unfortunately distorts the observation of the LLC.
+Instead of counting cache accesses, cache evictions are both unavoidable by side-channel attacks and always visible by the LLC.
+Triggering remaps by counting LLC evictions is at least as effective as counting LLC accesses.
+Even better, counting LLC evictions is actually much more efficient
+because the LLC miss rate of normal applications is much lower than attacks
+and less remaps would be triggered.
+
+### Significantly Reducing Remap Overhead by Multi-Step Relocation
+
+The most performance overhead of dynamic cache randomization comes form the data loss during a remap.
+Our experiment estimates that 40% to 50% cache blocks in an LLC are evicted during the remap process,
+which is why frequent remaps can hurt performance significantly.
+
+Our solution is a multi-step relocation scheme in the remap process.
+When a cache block is remapped to a full cache set, instead of evicting one cache block to make a room,
+the remap tries to further remap the otherwise evicted block.
+In a set-associative cache, this multi-step relocation scheme reduces the data loss from 40~50% to just 10%.
+
+### Trigger Extra Remaps When an Active Is Detected
+
+Although remap at a high frequency thwarts most side-channel attacks,
+it incurs observable performance loss due to the evicted cache blocks.
+Instead, moderately reducing the remap frequency while triggering extra remaps
+when attacks using fast search algorithms are caught in action can reduce the performance loss.
+Our research has shown that both PPP and GE algorithms can be reliably detected,
+because they need to prune a large set of random addresses into a minimal eviction set and
+exceptional number of evictions are incurred on the targeted cache set during the prune process.
+An active attack can be detected accordingly by constantly monitoring the distribution of evictions among cache sets.
+
+As an example, the following figure shows two attacks utilizing the GE algorithm to search eviction sets.
+After applying a Z-standardization, the unbalanced distribution of cache evictions among cache set
+is easily noticeable.
+
+![Detection Example](https://wsong83.github.io/asset/chipyard-random-llc/ge-eviction-zscore.png)
+
+By combining periodically and detector triggered remaps,
+all existing attacks (searching eviction sets at runtime) are defeated.
+
+### Single-Cycle Hasher
+
+Is it really necessary to use a multi-cycle cryptographic cipher for randomizing cache indices?
+No, we think, even when everyone else is doing so.
+
+According to our estimation, every extra cycle consumed by the cryptographic cipher cost 0.4% CPI performance,
+and the fastest cryptographic cipher still requires 4 to 6 cycles.
+We propose a single-cycle hasher which we claim is secured enough for the purpose of randomizing the cache indices.
+For details, please refer to our latest TC paper.
 
 
-
-[hwacha]:http://hwacha.org
-[hammer]:https://github.com/ucb-bar/hammer
-[firesim]:https://fires.im
-[ucb-bar]: http://bar.eecs.berkeley.edu
-[eecs]: https://eecs.berkeley.edu
-[berkeley]: https://berkeley.edu
-[riscv]: https://riscv.org/
-[rocket-chip]: https://github.com/freechipsproject/rocket-chip
-[boom]: https://github.com/riscv-boom/riscv-boom
-[firemarshal]: https://github.com/firesim/FireMarshal/
-[cva6]: https://github.com/openhwgroup/cva6/
-[gemmini]: https://github.com/ucb-bar/gemmini
-[nvdla]: http://nvdla.org/
-
-# vcs sim
-
-## 1.spike toolchains/riscv-tools/riscv-isa-sim
-use gcc-4.8 g++-4.8 install spike ../configure --prefix=$RISCV CC=gcc-4.8 CXX=g++4.8
-
-## 2.DRAM2 tools/DRAMSim2
-use gcc-4.8 g++-4.8 install DRAMSim2 make CC=gcc-4.8 CXX=g++4.8
-
-## 3.test sims/test/riscv-tests
-use riscv64-unknown-elf-gcc (GCC) 9.2.0 compile isa empty and benchmarks
-
-## 4 if use Verdi
-in sims/vcs/Makefile add $(VCS_NOVAS_OPS) to VCS_OPTS
-env:
-export VERDI_HOME=$SOFT_DIR/Verdi3_L-2016.06-1
-export PATH=$PATH:$VERDI_HOME/bin
-export LD_LIBRARY_PATH=${VERDI_HOME}/share/PLI/VCS/LINUX64${LD_LIBRARY_PATH:+":${LD_LIBRARY_PATH}"}
-vcs version and verdi version should match
-
-## 5. gcc version must match in 1 2 and vcs
-
-# ENV(xzh) example
-
-## 1.env-riscv-tools.sh auto-generated by build-toolchains.sh
-export CHIPYARD_TOOLCHAIN_SOURCED=1
-export RISCV=/home/xzh/Risc-V/chipyard/riscv-tools-install
-export RISCV_TEST=$PWD/sims/test/riscv-tests
-export PATH=${RISCV}/bin:${PATH}
-export LD_LIBRARY_PATH=${RISCV}/lib${LD_LIBRARY_PATH:+":${LD_LIBRARY_PATH}"}
-
-##  2.env.sh line auto-generated by init-submodules-no-riscv-tools.sh
-__DIR="$(dirname "$(readlink -f "${BASH_SOURCE[0]:-${(%):-%x}}")")"
-PATH=$__DIR/bin:$PATH
-PATH=$__DIR/software/firemarshal:$PATH
-this line below auto-generated by build-toolchains.sh
-source /home/xzh/Risc-V/chipyard/env-riscv-tools.sh
-
-## 3.myset_env.sh
-source /home/xzh/synopsys_env
-source /home/xzh/vivado_env
-source $PWD/env-riscv-tools.sh
-source $PWD/env-osd.sh
-
-# run on fpga
-
-## 1.install glip and osd
-cd opensocdebug/glip/
-./autogen.sh
-mkdir build; cd build;
-../configure --prefix=$OSD_ROOT --enable-tcp --enable-uart
-make && make install
-cd opensocdebug/software/
-./autogen.sh
-mkdir build; cd build;
-../configure --prefix=$OSD_ROOT --enable-python-binds
-make && make install
-
-## 2.program fpga and connect to osd
-cd fpga/
-make bitstream
-use vivado to program device
-opensocdebugd uart device=/dev/ttyUSB0 speed=3000000
-//osd(glip) only support ttyUSB0 and the max speed of uart in genesys2 is 3000000
-osd-cli
-
-## 3.run spec cpu 2006
-generate kernel(rename it to boot.elf) and riscv-spec-ref
-cd fpga/src/main/resources/genesys2/sdboot/bootram/
-make fat32elf.riscv
-cd fpga/src/main/resources/genesys2/sdboot/app/
-make autoSPEC.riscv
-copy autoSPEC.riscv, boot.elf(kernel) and riscv-spec-ref to sd
-in osd-cli commmand line
-reset -halt
-mem loadelf fat32elf.riscv 3
-start
-boot kernel successfully
-in osd-cli terminal line
-mknod /dev/mem c 1 1
-cat /proc/partitions
-mknod /dev/mmcblk0p1 b 179 1
-mount /dev/mmcblk0p1 /mnt
-cd /mnt
-./autoSPEC.riscv 1 55 5 10 /mnt/pfc 1>log 2>&1 &
-wait all case finished
-cd /
-umount /mnt
